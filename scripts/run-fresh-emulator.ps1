@@ -106,7 +106,31 @@ if (-not $serial) {
 }
 
 Write-Host "Using emulator serial: $serial"
-Invoke-Checked "adb -s $serial wait-for-device" { adb -s $serial wait-for-device }
+
+Write-Step "Waiting for adb device state"
+$deviceReady = $false
+$deviceDeadline = (Get-Date).AddMinutes(2)
+while ((Get-Date) -lt $deviceDeadline) {
+    $stateOutput = ""
+    try {
+        $stateOutput = ((& adb -s $serial get-state 2>$null) -join "").Trim()
+    } catch {
+        $stateOutput = ""
+    }
+
+    $state = if ([string]::IsNullOrWhiteSpace($stateOutput)) { "offline" } else { $stateOutput }
+    if ($state -eq "device") {
+        $deviceReady = $true
+        break
+    }
+
+    Write-Host "ADB state: $state"
+    Start-Sleep -Seconds 2
+}
+
+if (-not $deviceReady) {
+    throw "Emulator adb state did not become 'device' in time."
+}
 
 Write-Step "Waiting for Android boot completion"
 $bootReady = $false

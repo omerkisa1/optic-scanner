@@ -1,11 +1,8 @@
 package com.omrreader.ui.screens.scan
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.ImageFormat
 import android.graphics.Matrix
-import android.graphics.Rect
-import android.graphics.YuvImage
+import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -28,7 +25,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import java.io.ByteArrayOutputStream
+import kotlin.math.max
+import kotlin.math.roundToInt
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -51,8 +49,9 @@ fun CameraPreview(
 
     val imageCapture = remember {
         ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
             .setFlashMode(ImageCapture.FLASH_MODE_OFF)
+            .setTargetResolution(Size(1920, 1080))
             .build()
     }
 
@@ -99,8 +98,9 @@ fun CameraPreview(
                         override fun onCaptureSuccess(image: ImageProxy) {
                             try {
                                 val bitmap = image.toBitmap()
-                                onImageCaptured(bitmap)
-                            } catch (e: Exception) {
+                                val normalized = normalizeCapturedBitmap(bitmap, image.imageInfo.rotationDegrees)
+                                onImageCaptured(normalized)
+                            } catch (t: Throwable) {
                                 onError("Fotoğraf işlenemedi. Lütfen tekrar çekin.")
                             } finally {
                                 image.close()
@@ -122,57 +122,35 @@ fun CameraPreview(
     }
 }
 
-private fun ImageProxy.toBitmap(): Bitmap {
-    val nv21 = toNv21ByteArray()
-    val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
-    val out = ByteArrayOutputStream()
-    yuvImage.compressToJpeg(Rect(0, 0, width, height), 95, out)
-    val imageBytes = out.toByteArray()
-    val rawBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-
-    val matrix = Matrix().apply {
-        postRotate(imageInfo.rotationDegrees.toFloat())
-    }
-    return Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
+private fun normalizeCapturedBitmap(source: Bitmap, rotationDegrees: Int): Bitmap {
+    val rotated = rotateIfNeeded(source, rotationDegrees)
+    return downscaleIfNeeded(rotated, maxLongEdge = 2400)
 }
 
-private fun ImageProxy.toNv21ByteArray(): ByteArray {
-    val yBuffer = planes[0].buffer
-    val uBuffer = planes[1].buffer
-    val vBuffer = planes[2].buffer
+private fun rotateIfNeeded(source: Bitmap, rotationDegrees: Int): Bitmap {
+    if (rotationDegrees % 360 == 0) return source
 
-    val ySize = yBuffer.remaining()
-    val uSize = uBuffer.remaining()
-    val vSize = vBuffer.remaining()
-
-    val nv21 = ByteArray(ySize + uSize + vSize)
-
-    yBuffer.get(nv21, 0, ySize)
-
-    val uBytes = ByteArray(uSize)
-    val vBytes = ByteArray(vSize)
-    uBuffer.get(uBytes)
-    vBuffer.get(vBytes)
-
-    var outputOffset = ySize
-    val chromaHeight = height / 2
-    val chromaWidth = width / 2
-
-    var uRowStart = 0
-    var vRowStart = 0
-
-    for (row in 0 until chromaHeight) {
-        var uIndex = uRowStart
-        var vIndex = vRowStart
-        for (col in 0 until chromaWidth) {
-            nv21[outputOffset++] = vBytes[vIndex]
-            nv21[outputOffset++] = uBytes[uIndex]
-            uIndex += planes[1].pixelStride
-            vIndex += planes[2].pixelStride
-        }
-        uRowStart += planes[1].rowStride
-        vRowStart += planes[2].rowStride
+    val matrix = Matrix().apply {
+        postRotate(rotationDegrees.toFloat())
     }
+    val rotated = Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+    if (rotated != source && !source.isRecycled) {
+        source.recycle()
+    }
+    return rotated
+}
 
-    return nv21
+private fun downscaleIfNeeded(source: Bitmap, maxLongEdge: Int): Bitmap {
+    val longEdge = max(source.width, source.height)
+    if (longEdge <= maxLongEdge) return source
+
+    val scale = maxLongEdge.toDouble() / longEdge.toDouble()
+    val targetWidth = (source.width * scale).roundToInt().coerceAtLeast(1)
+    val targetHeight = (source.height * scale).roundToInt().coerceAtLeast(1)
+
+    val scaled = Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+    if (scaled != source && !source.isRecycled) {
+        source.recycle()
+    }
+    return scaled
 }

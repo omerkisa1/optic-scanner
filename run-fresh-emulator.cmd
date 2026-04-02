@@ -10,10 +10,8 @@ if not "%EXIT_CODE%"=="0" (
   echo.
   echo Script failed with exit code %EXIT_CODE%.
   echo Check output above for the failing step.
-  pause
   exit /b %EXIT_CODE%
 )
 
 echo.
 echo Completed successfully.
-pause

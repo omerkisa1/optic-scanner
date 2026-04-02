@@ -56,15 +56,23 @@ class ScanViewModel @Inject constructor(
 
         viewModelScope.launch(Dispatchers.Default) {
             _scanState.value = ScanState.Processing
-            val exam = _activeExamId.value?.let { examRepository.getExamById(it) }
-            val result = processOMRUseCase.process(bitmap, expectedExam = exam)
-            _scanState.value = when (result) {
-                is ProcessResult.Success -> {
-                    _reviewResult.value = result
-                    _answerOverrides.value = emptyMap()
-                    ScanState.ReviewReady(result)
+            try {
+                val exam = _activeExamId.value?.let { examRepository.getExamById(it) }
+                val result = processOMRUseCase.process(bitmap, expectedExam = exam)
+                _scanState.value = when (result) {
+                    is ProcessResult.Success -> {
+                        _reviewResult.value = result
+                        _answerOverrides.value = emptyMap()
+                        ScanState.ReviewReady(result)
+                    }
+                    is ProcessResult.Error -> ScanState.Error(result.message)
                 }
-                is ProcessResult.Error -> ScanState.Error(result.message)
+            } catch (t: Throwable) {
+                _scanState.value = ScanState.Error("Tarama sırasında hata oluştu. Lütfen tekrar deneyin.")
+            } finally {
+                if (!bitmap.isRecycled) {
+                    bitmap.recycle()
+                }
             }
         }
     }
