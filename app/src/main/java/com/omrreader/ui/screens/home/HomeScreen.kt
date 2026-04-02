@@ -104,7 +104,11 @@ fun ExamCard(
                 Text(text = exam.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "${exam.subjectCount} Ders - ${exam.questionsPerSubject} Soru",
+                    text = if (exam.subjectCount <= 1) {
+                        "${exam.questionsPerSubject} Soru"
+                    } else {
+                        "${exam.subjectCount} Ders - ${exam.questionsPerSubject} Soru"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

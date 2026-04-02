@@ -25,6 +25,11 @@ data class SubjectConfig(
     val optionCount: Int
 )
 
+enum class EducationType(val label: String) {
+    FIRST("1. Öğretim"),
+    SECOND("2. Öğretim")
+}
+
 data class QuestionEditorState(
     val id: Long = 0,
     val subjectIndex: Int,
@@ -59,10 +64,28 @@ class ExamViewModel @Inject constructor(
     var examName by mutableStateOf("")
         private set
 
+    var examCode by mutableStateOf("")
+        private set
+
+    var questionCount by mutableIntStateOf(20)
+        private set
+
+    var classConfigEnabled by mutableStateOf(false)
+        private set
+
+    var gradeLevel by mutableStateOf("1")
+        private set
+
+    var educationType by mutableStateOf<EducationType?>(EducationType.FIRST)
+        private set
+
+    var branchInput by mutableStateOf("A,B")
+        private set
+
     var subjectCount by mutableIntStateOf(1)
         private set
 
-    var subjects by mutableStateOf(listOf(SubjectConfig("DERS 1", 20, 4)))
+    var subjects by mutableStateOf(listOf(SubjectConfig("DERS 1", questionCount, 4)))
         private set
 
     var answerItems by mutableStateOf<List<QuestionEditorState>>(emptyList())
@@ -82,6 +105,45 @@ class ExamViewModel @Inject constructor(
 
     fun onExamNameChange(value: String) {
         examName = value
+        subjects = subjects.mapIndexed { index, subject ->
+            if (index == 0) {
+                subject.copy(name = value.trim().ifBlank { "DERS 1" })
+            } else {
+                subject
+            }
+        }
+    }
+
+    fun onExamCodeChange(value: String) {
+        examCode = value.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
+    }
+
+    fun onQuestionCountChange(value: Int) {
+        if (value !in 5..50) return
+        questionCount = value
+        subjects = subjects.mapIndexed { index, subject ->
+            if (index == 0) subject.copy(questionCount = value) else subject
+        }
+    }
+
+    fun onClassConfigEnabledChange(enabled: Boolean) {
+        classConfigEnabled = enabled
+        if (enabled && branchInput.isBlank()) {
+            branchInput = "A,B"
+        }
+    }
+
+    fun onGradeLevelChange(value: String) {
+        gradeLevel = value.filter { it.isDigit() }
+    }
+
+    fun onEducationTypeChange(value: EducationType) {
+        educationType = value
+    }
+
+    fun onBranchInputChange(value: String) {
+        branchInput = value.uppercase()
+            .filter { it.isLetterOrDigit() || it == ',' || it == ' ' }
     }
 
     fun onSubjectCountChange(value: Int) {
@@ -117,37 +179,70 @@ class ExamViewModel @Inject constructor(
     }
 
     fun createExam(onCreated: (Long) -> Unit) {
-        if (examName.isBlank()) {
+        val baseName = examName.trim()
+        if (baseName.isBlank()) {
             emitMessage("Sınav adı boş olamaz.")
             return
         }
 
+        if (questionCount !in 5..50) {
+            emitMessage("Soru sayısı 5 ile 50 arasında olmalı.")
+            return
+        }
+
         viewModelScope.launch {
-            val totalQuestions = subjects.sumOf { it.questionCount }
-            if (totalQuestions == 0) {
-                emitMessage("Soru sayısı geçersiz.")
+            val normalizedBaseName = normalize(baseName)
+            val normalizedCode = normalize(examCode)
+
+            val existingExams = examRepository.getAllExams()
+            val hasConflict = existingExams.any { exam ->
+                val (existingBaseName, existingCode) = splitStoredExamName(exam.name)
+                val sameBase = normalize(existingBaseName) == normalizedBaseName
+                if (!sameBase) {
+                    false
+                } else if (normalizedCode.isBlank()) {
+                    true
+                } else {
+                    normalize(existingCode.orEmpty()) == normalizedCode
+                }
+            }
+
+            if (hasConflict) {
+                if (normalizedCode.isBlank()) {
+                    emitMessage("Bu sınav adı zaten var. Farklı ad girin veya benzersiz kod ekleyin.")
+                } else {
+                    emitMessage("Bu sınav adı ve kod kombinasyonu zaten var.")
+                }
                 return@launch
             }
 
-            val examId = examRepository.createExam(
-                name = examName.trim(),
-                subjectCount = subjectCount,
-                questionsPerSubject = subjects.first().questionCount,
-                optionCount = subjects.first().optionCount
+            val displayName = buildDisplayName(baseName)
+            val subjectConfig = SubjectConfig(
+                name = baseName,
+                questionCount = questionCount,
+                optionCount = 4
             )
 
-            val defaultWeight = 100.0 / totalQuestions
-            subjects.forEachIndexed { subjectIndex, config ->
-                for (questionNumber in 1..config.questionCount) {
-                    examRepository.insertAnswerKey(
-                        examId = examId,
-                        subjectIndex = subjectIndex,
-                        questionNumber = questionNumber,
-                        correctAnswer = 0,
-                        weight = defaultWeight,
-                        isWeightLocked = false
-                    )
-                }
+            subjectCount = 1
+            subjects = listOf(subjectConfig)
+
+            val examId = examRepository.createExam(
+                name = displayName,
+                subjectCount = 1,
+                questionsPerSubject = subjectConfig.questionCount,
+                optionCount = subjectConfig.optionCount
+            )
+
+            val defaultWeight = 100.0 / subjectConfig.questionCount
+            for (questionNumber in 1..subjectConfig.questionCount) {
+                examRepository.insertAnswerKey(
+                    examId = examId,
+                    subjectIndex = 0,
+                    questionNumber = questionNumber,
+                    correctAnswer = 0,
+                    weight = defaultWeight,
+                    isWeightLocked = false
+                )
             }
 
             onCreated(examId)
@@ -168,6 +263,7 @@ class ExamViewModel @Inject constructor(
             currentExam = exam
             examName = exam.name
             subjectCount = exam.subjectCount
+            questionCount = exam.questionsPerSubject
 
             val loadedKeys = examRepository.getAnswerKeysForExam(examId)
             val subjectNames = subjects
@@ -208,7 +304,8 @@ class ExamViewModel @Inject constructor(
                 val existing = subjectNames.getOrNull(index)
                 val questionCount = answerItems.count { it.subjectIndex == index }
                 SubjectConfig(
-                    name = existing?.name?.ifBlank { "DERS ${index + 1}" } ?: "DERS ${index + 1}",
+                    name = existing?.name?.ifBlank { defaultSubjectName(index, exam) }
+                        ?: defaultSubjectName(index, exam),
                     questionCount = questionCount,
                     optionCount = exam.optionCount
                 )
@@ -348,6 +445,72 @@ class ExamViewModel @Inject constructor(
 
     fun getTotalWeight(): Double {
         return answerItems.sumOf { it.weight }
+    }
+
+    private fun defaultSubjectName(index: Int, exam: Exam): String {
+        return if (exam.subjectCount == 1 && index == 0) {
+            splitStoredExamName(exam.name).first.ifBlank { "DERS 1" }
+        } else {
+            "DERS ${index + 1}"
+        }
+    }
+
+    private fun parseBranches(raw: String): List<String> {
+        return raw.split(",")
+            .map { it.trim().uppercase() }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
+    private fun buildClassDescriptor(): String? {
+        if (!classConfigEnabled) return null
+
+        val parts = mutableListOf<String>()
+        val level = gradeLevel.trim()
+        if (level.isNotBlank()) {
+            parts += "$level. Sınıf"
+        }
+
+        educationType?.let { parts += it.label }
+
+        val branches = parseBranches(branchInput)
+        if (branches.isNotEmpty()) {
+            parts += "${branches.joinToString("/")} Şubesi"
+        }
+
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" | ")
+    }
+
+    private fun buildDisplayName(baseName: String): String {
+        val code = examCode.trim().uppercase()
+        val baseWithCode = if (code.isBlank()) {
+            baseName
+        } else {
+            "$baseName [$code]"
+        }
+
+        val classDescriptor = buildClassDescriptor()
+        return if (classDescriptor.isNullOrBlank()) {
+            baseWithCode
+        } else {
+            "$baseWithCode | $classDescriptor"
+        }
+    }
+
+    private fun splitStoredExamName(raw: String): Pair<String, String?> {
+        val identityPart = raw.substringBefore(" | ").trim()
+        val codeMatch = Regex("\\[(.+)]$").find(identityPart)
+        return if (codeMatch != null) {
+            val code = codeMatch.groupValues[1].trim()
+            val baseName = identityPart.removeRange(codeMatch.range).trim()
+            baseName to code
+        } else {
+            identityPart to null
+        }
+    }
+
+    private fun normalize(value: String): String {
+        return value.trim().lowercase().replace(Regex("\\s+"), " ")
     }
 
     private fun emitMessage(message: String) {

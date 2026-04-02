@@ -1,7 +1,6 @@
 package com.omrreader.ui.screens.exam
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +14,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -37,6 +38,7 @@ fun CreateExamScreen(
     viewModel: ExamViewModel = hiltViewModel()
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
+    var questionInput by remember(viewModel.questionCount) { mutableStateOf(viewModel.questionCount.toString()) }
 
     LaunchedEffect(Unit) {
         viewModel.uiMessage.collect { message ->
@@ -87,90 +89,93 @@ fun CreateExamScreen(
             }
 
             item {
-                Text(
-                    text = "Ders Sayısı",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                OutlinedTextField(
+                    value = viewModel.examCode,
+                    onValueChange = viewModel::onExamCodeChange,
+                    label = { Text("Benzersiz Kod (Opsiyonel)") },
+                    supportingText = { Text("Aynı isimli sınavları ayırt etmek için kullanılır.") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = viewModel.subjectCount == 1,
-                        onClick = { viewModel.onSubjectCountChange(1) },
-                        label = { Text("1 Ders") }
+            }
+
+            item {
+                OutlinedTextField(
+                    value = questionInput,
+                    onValueChange = {
+                        val filtered = it.filter { ch -> ch.isDigit() }
+                        questionInput = filtered
+                        filtered.toIntOrNull()?.let { count ->
+                            viewModel.onQuestionCountChange(count.coerceIn(5, 50))
+                        }
+                    },
+                    label = { Text("Soru Sayısı (5-50)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Sınıf / Öğretim / Şube (Opsiyonel)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
                     )
-                    FilterChip(
-                        selected = viewModel.subjectCount == 2,
-                        onClick = { viewModel.onSubjectCountChange(2) },
-                        label = { Text("2 Ders") }
+                    Switch(
+                        checked = viewModel.classConfigEnabled,
+                        onCheckedChange = viewModel::onClassConfigEnabledChange
                     )
                 }
             }
 
-            items(viewModel.subjects.size) { index ->
-                val subject = viewModel.subjects[index]
-                SubjectConfigCard(
-                    index = index,
-                    config = subject,
-                    onNameChange = { viewModel.onSubjectNameChange(index, it) },
-                    onQuestionCountChange = { viewModel.onSubjectQuestionCountChange(index, it) },
-                    onOptionCountChange = { viewModel.onSubjectOptionCountChange(index, it) }
-                )
+            if (viewModel.classConfigEnabled) {
+                item {
+                    OutlinedTextField(
+                        value = viewModel.gradeLevel,
+                        onValueChange = viewModel::onGradeLevelChange,
+                        label = { Text("Sınıf (Örn: 1)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+
+                item {
+                    Text(
+                        text = "Öğretim",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = viewModel.educationType == EducationType.FIRST,
+                            onClick = { viewModel.onEducationTypeChange(EducationType.FIRST) },
+                            label = { Text("1. Öğretim") }
+                        )
+                        FilterChip(
+                            selected = viewModel.educationType == EducationType.SECOND,
+                            onClick = { viewModel.onEducationTypeChange(EducationType.SECOND) },
+                            label = { Text("2. Öğretim") }
+                        )
+                    }
+                }
+
+                item {
+                    OutlinedTextField(
+                        value = viewModel.branchInput,
+                        onValueChange = viewModel::onBranchInputChange,
+                        label = { Text("Şubeler (virgülle)") },
+                        supportingText = { Text("Varsayılan: A,B  |  Örnek: A,B,C") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
             }
         }
     }
 }
 
-@Composable
-private fun SubjectConfigCard(
-    index: Int,
-    config: SubjectConfig,
-    onNameChange: (String) -> Unit,
-    onQuestionCountChange: (Int) -> Unit,
-    onOptionCountChange: (Int) -> Unit
-) {
-    var questionInput by remember(config.questionCount) { mutableStateOf(config.questionCount.toString()) }
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Text(
-            text = "Ders ${index + 1}",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        OutlinedTextField(
-            value = config.name,
-            onValueChange = onNameChange,
-            label = { Text("Ders Adı") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-
-        OutlinedTextField(
-            value = questionInput,
-            onValueChange = {
-                questionInput = it.filter { ch -> ch.isDigit() }
-                val parsed = questionInput.toIntOrNull()
-                if (parsed != null) onQuestionCountChange(parsed.coerceIn(5, 50))
-            },
-            label = { Text("Soru Sayısı (5-50)") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = config.optionCount == 4,
-                onClick = { onOptionCountChange(4) },
-                label = { Text("4 Şık") }
-            )
-            FilterChip(
-                selected = config.optionCount == 5,
-                onClick = { onOptionCountChange(5) },
-                label = { Text("5 Şık") }
-            )
-        }
-    }
-}
