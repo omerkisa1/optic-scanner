@@ -13,6 +13,7 @@ import org.opencv.imgproc.Imgproc
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
+import kotlin.math.hypot
 
 @Singleton
 class PerspectiveCorrector @Inject constructor() {
@@ -88,6 +89,10 @@ class PerspectiveCorrector @Inject constructor() {
         val expectedMarkerArea = (expectedMarkerWidth * expectedMarkerHeight).coerceAtLeast(36.0)
         val minMarkerArea = expectedMarkerArea * 0.20
         val maxMarkerArea = expectedMarkerArea * 8.0
+        val minMarkerWidth = (expectedMarkerWidth * 0.45).coerceAtLeast(8.0)
+        val maxMarkerWidth = expectedMarkerWidth * 2.2
+        val minMarkerHeight = (expectedMarkerHeight * 0.45).coerceAtLeast(8.0)
+        val maxMarkerHeight = expectedMarkerHeight * 2.2
 
         val candidates = contours.mapNotNull { contour ->
             val area = Imgproc.contourArea(contour)
@@ -95,6 +100,8 @@ class PerspectiveCorrector @Inject constructor() {
 
             val rect = Imgproc.boundingRect(contour)
             if (rect.width <= 0 || rect.height <= 0) return@mapNotNull null
+            if (rect.width.toDouble() !in minMarkerWidth..maxMarkerWidth) return@mapNotNull null
+            if (rect.height.toDouble() !in minMarkerHeight..maxMarkerHeight) return@mapNotNull null
 
             val contour2f = MatOfPoint2f(*contour.toArray())
             val peri = Imgproc.arcLength(contour2f, true)
@@ -107,7 +114,7 @@ class PerspectiveCorrector @Inject constructor() {
 
             val bboxArea = (rect.width * rect.height).toDouble().coerceAtLeast(1.0)
             val fillRatio = area / bboxArea
-            if (fillRatio < 0.35) return@mapNotNull null
+            if (fillRatio < 0.45) return@mapNotNull null
 
             MarkerCandidate(
                 rect = rect,
@@ -118,6 +125,8 @@ class PerspectiveCorrector @Inject constructor() {
         if (candidates.size < 4) return null
 
         val expected = template.markerCentersForImage(imageWidth, imageHeight)
+        val imageDiagonal = hypot(imageWidth.toDouble(), imageHeight.toDouble()).coerceAtLeast(1.0)
+        val maxDistance = imageDiagonal * 0.28
 
         val cornerTargets = listOf(
             CornerType.TOP_LEFT to expected.topLeft,
@@ -130,9 +139,23 @@ class PerspectiveCorrector @Inject constructor() {
         val pool = candidates.toMutableList()
 
         for ((cornerType, target) in cornerTargets) {
-            val preferred = pool.filter { matchesQuadrant(it.center, cornerType, imageWidth, imageHeight) }
-            val sourcePool = if (preferred.isNotEmpty()) preferred else pool
-            val best = sourcePool.minByOrNull { distanceSquared(it.center, target.toCvPoint()) } ?: return null
+            val targetCv = target.toCvPoint()
+            val preferred = pool.filter {
+                matchesQuadrant(it.center, cornerType, imageWidth, imageHeight) &&
+                    distance(it.center, targetCv) <= maxDistance
+            }
+            val sourcePool = if (preferred.isNotEmpty()) preferred else pool.filter { distance(it.center, targetCv) <= maxDistance }
+            if (sourcePool.isEmpty()) return null
+
+            val best = sourcePool.minByOrNull { candidate ->
+                markerScore(
+                    candidate = candidate,
+                    target = targetCv,
+                    expectedMarkerWidth = expectedMarkerWidth,
+                    expectedMarkerHeight = expectedMarkerHeight,
+                    maxDistance = maxDistance
+                )
+            } ?: return null
             selected[cornerType] = best
             pool.remove(best)
         }
@@ -204,6 +227,23 @@ class PerspectiveCorrector @Inject constructor() {
         val dx = a.x - b.x
         val dy = a.y - b.y
         return dx * dx + dy * dy
+    }
+
+    private fun distance(a: Point, b: Point): Double {
+        return kotlin.math.sqrt(distanceSquared(a, b))
+    }
+
+    private fun markerScore(
+        candidate: MarkerCandidate,
+        target: Point,
+        expectedMarkerWidth: Double,
+        expectedMarkerHeight: Double,
+        maxDistance: Double
+    ): Double {
+        val centerDistance = distance(candidate.center, target) / maxDistance.coerceAtLeast(1.0)
+        val widthPenalty = abs(candidate.rect.width - expectedMarkerWidth) / expectedMarkerWidth.coerceAtLeast(1.0)
+        val heightPenalty = abs(candidate.rect.height - expectedMarkerHeight) / expectedMarkerHeight.coerceAtLeast(1.0)
+        return (centerDistance * 0.60) + (widthPenalty * 0.20) + (heightPenalty * 0.20)
     }
 
     private fun resizeFallbackIfLikelyAligned(source: Mat, template: FormTemplate): Bitmap? {
