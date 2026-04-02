@@ -1,14 +1,17 @@
 package com.omrreader.ui.navigation
 
 import androidx.compose.runtime.Composable
-import androidx.navigation.NamedNavArgument
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.omrreader.ui.screens.*
+import com.omrreader.ui.screens.AnswerKeyScreen
+import com.omrreader.ui.screens.CreateExamScreen
+import com.omrreader.ui.screens.ExamDetailScreen
 import com.omrreader.ui.screens.home.HomeScreen
+import com.omrreader.ui.screens.scan.ReviewScreen
+import com.omrreader.ui.screens.scan.ScanScreen
 
 @Composable
 fun RootNavGraph() {
@@ -75,9 +78,9 @@ fun RootNavGraph() {
         }
 
         composable(Screen.ReviewScan.route) {
-            ReviewScanScreen(
+            ReviewScreen(
                 onBack = { navController.popBackStack() },
-                onConfirm = { navController.popBackStack(Screen.ExamDetail.route, inclusive = false) } // TODO verify param
+                onConfirm = { navController.popBackStack() }
             )
         }
     }

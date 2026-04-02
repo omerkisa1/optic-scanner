@@ -26,6 +26,26 @@ class ExamRepository @Inject constructor(
         return examDao.insertExam(exam.toEntity())
     }
 
+    suspend fun createExam(
+        name: String,
+        subjectCount: Int,
+        questionsPerSubject: Int,
+        optionCount: Int
+    ): Long {
+        return insertExam(
+            Exam(
+                name = name,
+                subjectCount = subjectCount,
+                questionsPerSubject = questionsPerSubject,
+                optionCount = optionCount
+            )
+        )
+    }
+
+    suspend fun updateExam(exam: Exam) {
+        examDao.updateExam(exam.toEntity())
+    }
+
     suspend fun deleteExam(exam: Exam) {
         examDao.deleteExam(exam.toEntity())
     }
@@ -36,6 +56,32 @@ class ExamRepository @Inject constructor(
 
     suspend fun saveAnswerKeys(keys: List<AnswerKey>) {
         answerKeyDao.insertAnswerKeys(keys.map { it.toEntity() })
+    }
+
+    suspend fun updateAnswerKeys(keys: List<AnswerKey>) {
+        answerKeyDao.updateAnswerKeys(keys.map { it.toEntity() })
+    }
+
+    suspend fun insertAnswerKey(
+        examId: Long,
+        subjectIndex: Int,
+        questionNumber: Int,
+        correctAnswer: Int,
+        weight: Double,
+        isWeightLocked: Boolean = false
+    ) {
+        answerKeyDao.insertAnswerKeys(
+            listOf(
+                AnswerKeyEntity(
+                    examId = examId,
+                    subjectIndex = subjectIndex,
+                    questionNumber = questionNumber,
+                    correctAnswer = correctAnswer,
+                    weight = weight,
+                    isWeightLocked = isWeightLocked
+                )
+            )
+        )
     }
 
     // Mapping extensions

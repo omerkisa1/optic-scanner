@@ -80,6 +80,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.navigation:navigation-compose:2.7.7")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation("com.google.accompanist:accompanist-permissions:0.34.0")
     
     // CameraX
     val camerax_version = "1.3.4"
@@ -107,11 +108,14 @@ dependencies {
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
     
     // Export Tools
-    implementation("org.apache.poi:poi-ooxml:5.2.5")
+    implementation("org.apache.poi:poi-ooxml:3.15") {
+        exclude(group = "org.apache.xmlbeans", module = "xmlbeans")
+    }
     implementation("com.itextpdf:itext7-core:7.2.5")
     
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.0")
     
     // JSON parsing
     implementation("com.google.code.gson:gson:2.10.1")
