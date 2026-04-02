@@ -1,5 +1,6 @@
 package com.omrreader.ui.screens.exam
 
+import android.content.Context
 import android.graphics.Bitmap
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -11,11 +12,16 @@ import com.google.gson.Gson
 import com.omrreader.data.repository.ExamRepository
 import com.omrreader.domain.model.AnswerKey
 import com.omrreader.domain.model.Exam
+import com.omrreader.export.FormGenerator
+import com.omrreader.export.FormSubjectLayout
 import com.omrreader.qr.QRGenerator
 import com.omrreader.scoring.ScoringEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -54,11 +60,19 @@ private data class QRSubject(
     val optionCount: Int? = null
 )
 
+sealed class FormExportState {
+    object Idle : FormExportState()
+    object Loading : FormExportState()
+    data class Success(val filePath: String) : FormExportState()
+    data class Error(val message: String) : FormExportState()
+}
+
 @HiltViewModel
 class ExamViewModel @Inject constructor(
     private val examRepository: ExamRepository,
     private val scoringEngine: ScoringEngine,
     private val qrGenerator: QRGenerator,
+    private val formGenerator: FormGenerator,
     private val gson: Gson
 ) : ViewModel() {
 
@@ -103,6 +117,9 @@ class ExamViewModel @Inject constructor(
 
     private val _uiMessage = MutableSharedFlow<String>()
     val uiMessage: SharedFlow<String> = _uiMessage
+
+    private val _formExportState = MutableStateFlow<FormExportState>(FormExportState.Idle)
+    val formExportState: StateFlow<FormExportState> = _formExportState.asStateFlow()
 
     fun onExamNameChange(value: String) {
         examName = value
@@ -265,6 +282,7 @@ class ExamViewModel @Inject constructor(
             examName = exam.name
             subjectCount = exam.subjectCount
             questionCount = exam.questionsPerSubject
+            currentQrData = exam.qrData
 
             val loadedKeys = examRepository.getAnswerKeysForExam(examId)
             val subjectNames = subjects
@@ -394,27 +412,52 @@ class ExamViewModel @Inject constructor(
             return
         }
 
-        val subjectPayloads = (0 until subjectCount).map { subjectIndex ->
-            val rows = answerItems.filter { it.subjectIndex == subjectIndex }
-                .sortedBy { it.questionNumber }
-            QRSubject(
-                name = subjects.getOrNull(subjectIndex)?.name?.ifBlank { "DERS ${subjectIndex + 1}" }
-                    ?: "DERS ${subjectIndex + 1}",
-                answers = rows.map { it.correctAnswer },
-                weights = rows.map { (it.weight * 100).toInt() / 100.0 },
-                optionCount = subjects.getOrNull(subjectIndex)?.optionCount
-            )
+        val qrData = buildQrData(exam, examId) ?: return
+        currentQrData = qrData
+        generatedQrBitmap = qrGenerator.generateQR(qrData)
+    }
+
+    fun exportTemplateForm(context: Context) {
+        val exam = currentExam
+        val examId = currentExamId
+
+        if (exam == null || examId == null) {
+            emitMessage("Form üretmek için önce sınav verileri yüklenmeli.")
+            return
         }
 
-        val payload = QRPayload(
-            id = "exam_$examId",
-            name = exam.name,
-            subjects = subjectPayloads,
-            total = 100
-        )
+        viewModelScope.launch {
+            _formExportState.value = FormExportState.Loading
 
-        currentQrData = gson.toJson(payload)
-        generatedQrBitmap = qrGenerator.generateQR(currentQrData.orEmpty())
+            val qrData = currentQrData ?: buildQrData(exam, examId)
+            val layouts = subjects
+                .ifEmpty { listOf(SubjectConfig("DERS 1", questionCount, 4)) }
+                .mapIndexed { index, subject ->
+                    FormSubjectLayout(
+                        name = subject.name.ifBlank { "DERS ${index + 1}" },
+                        questionCount = subject.questionCount.coerceAtLeast(1),
+                        optionCount = subject.optionCount.coerceIn(2, 8)
+                    )
+                }
+
+            val file = formGenerator.generateTemplatePdf(
+                context = context,
+                examName = exam.name,
+                subjects = layouts,
+                qrData = qrData
+            )
+
+            if (file != null) {
+                currentQrData = qrData
+                _formExportState.value = FormExportState.Success(file.absolutePath)
+            } else {
+                _formExportState.value = FormExportState.Error("Optik form PDF oluşturulamadı.")
+            }
+        }
+    }
+
+    fun resetFormExportState() {
+        _formExportState.value = FormExportState.Idle
     }
 
     fun saveAnswerKeys(onSaved: () -> Unit) {
@@ -513,6 +556,34 @@ class ExamViewModel @Inject constructor(
 
     private fun normalize(value: String): String {
         return value.trim().lowercase().replace(Regex("\\s+"), " ")
+    }
+
+    private fun buildQrData(exam: Exam, examId: Long): String? {
+        if (answerItems.isEmpty()) {
+            emitMessage("QR içeriği oluşturmak için soru anahtarı bulunamadı.")
+            return null
+        }
+
+        val subjectPayloads = (0 until subjectCount).map { subjectIndex ->
+            val rows = answerItems.filter { it.subjectIndex == subjectIndex }
+                .sortedBy { it.questionNumber }
+            QRSubject(
+                name = subjects.getOrNull(subjectIndex)?.name?.ifBlank { "DERS ${subjectIndex + 1}" }
+                    ?: "DERS ${subjectIndex + 1}",
+                answers = rows.map { it.correctAnswer },
+                weights = rows.map { (it.weight * 100).toInt() / 100.0 },
+                optionCount = subjects.getOrNull(subjectIndex)?.optionCount
+            )
+        }
+
+        val payload = QRPayload(
+            id = "exam_$examId",
+            name = exam.name,
+            subjects = subjectPayloads,
+            total = 100
+        )
+
+        return gson.toJson(payload)
     }
 
     private fun emitMessage(message: String) {

@@ -1,157 +1,173 @@
 package com.omrreader.processing
 
+import android.graphics.PointF
 import android.graphics.Rect
 import android.graphics.RectF
+import kotlin.math.roundToInt
 
 data class FormTemplate(
-    val name: String,
-    val pageWidth: Int,
-    val pageHeight: Int,
-    val markerSizeRatio: Float,
-    val nameRegion: RectF,
-    val numberRegion: RectF,
-    val classRegion: RectF,
-    val qrRegion: RectF,
-    val subjects: List<SubjectGridTemplate>
+    // Perspective warp output size (A4 ratio)
+    val normalizedWidth: Int = 1000,
+    val normalizedHeight: Int = 1414,
+    // Four corner black markers
+    val markerSize: Int = 60,
+    val markerMargin: Int = 20,
+    // RectF fields are used as (x, y, width, height) in normalized ratios
+    val nameRegion: RectF = RectF(0.15f, 0.06f, 0.70f, 0.04f),
+    val numberRegion: RectF = RectF(0.15f, 0.11f, 0.70f, 0.04f),
+    val classRegion: RectF = RectF(0.15f, 0.16f, 0.70f, 0.04f),
+    // Optional QR region, if null scanner can use manual answer key
+    val qrRegion: RectF? = null,
+    val grids: List<GridRegion> = listOf(
+        GridRegion(
+            region = RectF(0.05f, 0.30f, 0.43f, 0.65f),
+            rows = 10,
+            cols = 5
+        ),
+        GridRegion(
+            region = RectF(0.52f, 0.30f, 0.43f, 0.65f),
+            rows = 10,
+            cols = 5
+        )
+    )
 ) {
 
     fun resolveNameRegion(imageWidth: Int, imageHeight: Int): Rect {
-        return nameRegion.toPixelRect(imageWidth, imageHeight)
+        return nameRegion.toPixelRectBySize(imageWidth, imageHeight)
     }
 
     fun resolveNumberRegion(imageWidth: Int, imageHeight: Int): Rect {
-        return numberRegion.toPixelRect(imageWidth, imageHeight)
+        return numberRegion.toPixelRectBySize(imageWidth, imageHeight)
     }
 
     fun resolveClassRegion(imageWidth: Int, imageHeight: Int): Rect {
-        return classRegion.toPixelRect(imageWidth, imageHeight)
+        return classRegion.toPixelRectBySize(imageWidth, imageHeight)
     }
 
-    fun resolveQrRegion(imageWidth: Int, imageHeight: Int): Rect {
-        return qrRegion.toPixelRect(imageWidth, imageHeight)
+    fun resolveQrRegion(imageWidth: Int, imageHeight: Int): Rect? {
+        return qrRegion?.toPixelRectBySize(imageWidth, imageHeight)
     }
 
-    fun resolveSubjects(imageWidth: Int, imageHeight: Int): List<SubjectGrid> {
-        return subjects.map { it.resolve(imageWidth, imageHeight) }
-    }
-
-    fun resolveSubjects(
+    fun resolveGrids(
         imageWidth: Int,
         imageHeight: Int,
-        overrides: List<SubjectGridOverride>
-    ): List<SubjectGrid> {
-        if (overrides.isEmpty()) {
-            return resolveSubjects(imageWidth, imageHeight)
+        overrides: List<GridOverride> = emptyList()
+    ): List<ResolvedGridRegion> {
+        if (grids.isEmpty()) return emptyList()
+
+        val effective = if (overrides.isEmpty()) {
+            grids
+        } else {
+            overrides.mapIndexed { index, override ->
+                val base = grids.getOrNull(index) ?: grids.last()
+                base.copy(
+                    rows = override.rows.coerceAtLeast(1),
+                    cols = override.cols.coerceAtLeast(2)
+                )
+            }
         }
 
-        if (subjects.isEmpty()) return emptyList()
+        return effective.map { grid ->
+            val regionPx = grid.region.toPixelRectBySize(imageWidth, imageHeight)
+            val gridWidth = (regionPx.right - regionPx.left).coerceAtLeast(1)
+            val gridHeight = (regionPx.bottom - regionPx.top).coerceAtLeast(1)
+            val cellWidth = (gridWidth / grid.cols).coerceAtLeast(1)
+            val cellHeight = (gridHeight / grid.rows).coerceAtLeast(1)
 
-        return overrides.mapIndexed { index, override ->
-            val template = subjects.getOrNull(index) ?: subjects.last()
-            template.resolve(
-                imageWidth = imageWidth,
-                imageHeight = imageHeight,
-                rowsOverride = override.rows.coerceAtLeast(1),
-                colsOverride = override.cols.coerceAtLeast(2),
-                nameOverride = override.name.ifBlank { template.name }
+            ResolvedGridRegion(
+                region = regionPx,
+                rows = grid.rows,
+                cols = grid.cols,
+                cellWidth = cellWidth,
+                cellHeight = cellHeight
             )
         }
+    }
+
+    fun markerCentersForImage(imageWidth: Int, imageHeight: Int): MarkerPoints {
+        val scaleX = imageWidth.toFloat() / normalizedWidth.toFloat()
+        val scaleY = imageHeight.toFloat() / normalizedHeight.toFloat()
+        val halfMarker = markerSize / 2f
+
+        return MarkerPoints(
+            topLeft = PointF((markerMargin + halfMarker) * scaleX, (markerMargin + halfMarker) * scaleY),
+            topRight = PointF(
+                (normalizedWidth - markerMargin - halfMarker) * scaleX,
+                (markerMargin + halfMarker) * scaleY
+            ),
+            bottomRight = PointF(
+                (normalizedWidth - markerMargin - halfMarker) * scaleX,
+                (normalizedHeight - markerMargin - halfMarker) * scaleY
+            ),
+            bottomLeft = PointF(
+                (markerMargin + halfMarker) * scaleX,
+                (normalizedHeight - markerMargin - halfMarker) * scaleY
+            )
+        )
+    }
+
+    fun markerCornerTargetsNormalized(): MarkerPoints {
+        return MarkerPoints(
+            topLeft = PointF(markerMargin.toFloat(), markerMargin.toFloat()),
+            topRight = PointF((normalizedWidth - markerMargin).toFloat(), markerMargin.toFloat()),
+            bottomRight = PointF(
+                (normalizedWidth - markerMargin).toFloat(),
+                (normalizedHeight - markerMargin).toFloat()
+            ),
+            bottomLeft = PointF(markerMargin.toFloat(), (normalizedHeight - markerMargin).toFloat())
+        )
+    }
+
+    fun pageCornerTargetsNormalized(): MarkerPoints {
+        return MarkerPoints(
+            topLeft = PointF(0f, 0f),
+            topRight = PointF((normalizedWidth - 1).toFloat(), 0f),
+            bottomRight = PointF((normalizedWidth - 1).toFloat(), (normalizedHeight - 1).toFloat()),
+            bottomLeft = PointF(0f, (normalizedHeight - 1).toFloat())
+        )
     }
 
     companion object {
-        val DEFAULT = FormTemplate(
-            name = "standard_2x20",
-            pageWidth = 1240,
-            pageHeight = 1754,
-            markerSizeRatio = 0.033f,
-            nameRegion = RectF(0.15f, 0.05f, 0.75f, 0.04f),
-            numberRegion = RectF(0.15f, 0.10f, 0.75f, 0.04f),
-            classRegion = RectF(0.15f, 0.15f, 0.30f, 0.04f),
-            qrRegion = RectF(0.05f, 0.20f, 0.15f, 0.10f),
-            subjects = listOf(
-                SubjectGridTemplate(
-                    name = "DERS 1",
-                    gridRegion = RectF(0.05f, 0.35f, 0.43f, 0.58f),
-                    rows = 20,
-                    cols = 4
-                ),
-                SubjectGridTemplate(
-                    name = "DERS 2",
-                    gridRegion = RectF(0.52f, 0.35f, 0.43f, 0.58f),
-                    rows = 20,
-                    cols = 4
-                )
-            )
-        )
+        val DEFAULT = FormTemplate()
     }
 }
 
-data class SubjectGridOverride(
-    val name: String,
+data class GridOverride(
     val rows: Int,
     val cols: Int
 )
 
-data class SubjectGridTemplate(
-    val name: String,
-    val gridRegion: RectF,
+data class GridRegion(
+    val region: RectF,
     val rows: Int,
     val cols: Int
-) {
-    fun resolve(
-        imageWidth: Int,
-        imageHeight: Int,
-        rowsOverride: Int = rows,
-        colsOverride: Int = cols,
-        nameOverride: String = name
-    ): SubjectGrid {
-        val regionPx = gridRegion.toPixelRect(imageWidth, imageHeight)
-        val gridWidth = (regionPx.right - regionPx.left).coerceAtLeast(1)
-        val gridHeight = (regionPx.bottom - regionPx.top).coerceAtLeast(1)
+)
 
-        val finalRows = rowsOverride.coerceAtLeast(1)
-        val finalCols = colsOverride.coerceAtLeast(2)
-
-        val horizontalGap = (gridWidth / finalCols).coerceAtLeast(1)
-        val verticalGap = (gridHeight / finalRows).coerceAtLeast(1)
-
-        val bubbleWidth = (horizontalGap * 0.62f).toInt().coerceAtLeast(10)
-        val bubbleHeight = (verticalGap * 0.62f).toInt().coerceAtLeast(10)
-
-        return SubjectGrid(
-            name = nameOverride,
-            gridRegion = regionPx,
-            rows = finalRows,
-            cols = finalCols,
-            bubbleWidth = bubbleWidth,
-            bubbleHeight = bubbleHeight,
-            horizontalGap = horizontalGap,
-            verticalGap = verticalGap
-        )
-    }
-}
-
-data class SubjectGrid(
-    val name: String,
-    val gridRegion: Rect,
+data class ResolvedGridRegion(
+    val region: Rect,
     val rows: Int,
     val cols: Int,
-    val bubbleWidth: Int,
-    val bubbleHeight: Int,
-    val horizontalGap: Int,
-    val verticalGap: Int
+    val cellWidth: Int,
+    val cellHeight: Int
 )
 
-private fun RectF.toPixelRect(imageWidth: Int, imageHeight: Int): Rect {
-    val left = (left * imageWidth).toInt()
-    val top = (top * imageHeight).toInt()
-    val width = (width() * imageWidth).toInt().coerceAtLeast(1)
-    val height = (height() * imageHeight).toInt().coerceAtLeast(1)
+data class MarkerPoints(
+    val topLeft: PointF,
+    val topRight: PointF,
+    val bottomRight: PointF,
+    val bottomLeft: PointF
+)
+
+private fun RectF.toPixelRectBySize(imageWidth: Int, imageHeight: Int): Rect {
+    val x = (left * imageWidth).roundToInt()
+    val y = (top * imageHeight).roundToInt()
+    val width = (right * imageWidth).roundToInt().coerceAtLeast(1)
+    val height = (bottom * imageHeight).roundToInt().coerceAtLeast(1)
 
     return Rect(
-        left.coerceAtLeast(0),
-        top.coerceAtLeast(0),
-        (left + width).coerceAtMost(imageWidth),
-        (top + height).coerceAtMost(imageHeight)
+        x.coerceIn(0, imageWidth - 1),
+        y.coerceIn(0, imageHeight - 1),
+        (x + width).coerceIn(1, imageWidth),
+        (y + height).coerceIn(1, imageHeight)
     )
 }

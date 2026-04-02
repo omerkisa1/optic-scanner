@@ -20,7 +20,7 @@ import javax.inject.Singleton
 class BubbleDetector @Inject constructor() {
     private val config = ThresholdConfig()
 
-    fun detect(bitmap: Bitmap, subjects: List<SubjectGrid>): List<QuestionResult> {
+    fun detect(bitmap: Bitmap, grids: List<ResolvedGridRegion>): List<QuestionResult> {
         val mat = Mat()
         Utils.bitmapToMat(bitmap, mat)
 
@@ -45,18 +45,30 @@ class BubbleDetector @Inject constructor() {
         val results = mutableListOf<QuestionResult>()
         var globalQuestionNumber = 1
 
-        for (subject in subjects) {
-            val startX = subject.gridRegion.left
-            val startY = subject.gridRegion.top
+        for (grid in grids) {
+            val startX = grid.region.left
+            val startY = grid.region.top
+            val gridRight = grid.region.right
+            val gridBottom = grid.region.bottom
 
-            for (row in 0 until subject.rows) {
-                val fillRatios = MutableList(subject.cols) { 0.0 }
+            for (row in 0 until grid.rows) {
+                val fillRatios = MutableList(grid.cols) { 0.0 }
 
-                for (col in 0 until subject.cols) {
-                    val bx = startX + (col * subject.horizontalGap) + ((subject.horizontalGap - subject.bubbleWidth) / 2)
-                    val by = startY + (row * subject.verticalGap) + ((subject.verticalGap - subject.bubbleHeight) / 2)
-                    val bw = subject.bubbleWidth
-                    val bh = subject.bubbleHeight
+                for (col in 0 until grid.cols) {
+                    val cellLeft = startX + (col * grid.cellWidth)
+                    val cellTop = startY + (row * grid.cellHeight)
+
+                    val nextCellLeft = if (col == grid.cols - 1) gridRight else startX + ((col + 1) * grid.cellWidth)
+                    val nextCellTop = if (row == grid.rows - 1) gridBottom else startY + ((row + 1) * grid.cellHeight)
+
+                    val cellWidth = (nextCellLeft - cellLeft).coerceAtLeast(1)
+                    val cellHeight = (nextCellTop - cellTop).coerceAtLeast(1)
+
+                    val bubbleSize = (minOf(cellWidth, cellHeight) * 0.62).toInt().coerceAtLeast(6)
+                    val bx = cellLeft + ((cellWidth - bubbleSize) / 2)
+                    val by = cellTop + ((cellHeight - bubbleSize) / 2)
+                    val bw = bubbleSize
+                    val bh = bubbleSize
 
                     if (bx < 0 || by < 0 || bx + bw > binary.cols() || by + bh > binary.rows()) {
                         fillRatios[col] = 0.0

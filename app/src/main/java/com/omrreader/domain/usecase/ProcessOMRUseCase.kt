@@ -8,10 +8,10 @@ import com.omrreader.domain.model.ProcessResult
 import com.omrreader.domain.model.SubjectInfo
 import com.omrreader.processing.BubbleDetector
 import com.omrreader.processing.FormTemplate
+import com.omrreader.processing.GridOverride
 import com.omrreader.processing.OCRProcessor
 import com.omrreader.processing.PerspectiveCorrector
 import com.omrreader.processing.QRProcessor
-import com.omrreader.processing.SubjectGridOverride
 import com.omrreader.scoring.ScoringEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -25,36 +25,47 @@ class ProcessOMRUseCase @Inject constructor(
     private val scoringEngine: ScoringEngine,
     private val gson: Gson
 ) {
-    suspend fun process(bitmap: Bitmap, expectedExam: Exam? = null): ProcessResult = withContext(Dispatchers.Default) {
+    suspend fun process(
+        bitmap: Bitmap,
+        expectedExam: Exam? = null,
+        fallbackAnswerKey: OMRAnswerKeyResponse? = null
+    ): ProcessResult = withContext(Dispatchers.Default) {
         try {
-            val corrected = perspectiveCorrector.correct(bitmap)
+            val template = FormTemplate.DEFAULT
+            val corrected = perspectiveCorrector.correct(bitmap, template)
                 ?: return@withContext ProcessResult.Error("Kağıt algılanamadı. Lütfen düz bir yüzeyde, iyi aydınlatmada tekrar çekin.")
 
-            val template = FormTemplate.DEFAULT
             val correctedWidth = corrected.width
             val correctedHeight = corrected.height
 
-            val qrRegion = template.resolveQrRegion(correctedWidth, correctedHeight)
-            val qrData = qrProcessor.decode(corrected, qrRegion)
-                ?: return@withContext ProcessResult.Error("QR kod okunamadı. QR kodun görünür ve net olduğundan emin olun.")
-
-            val answerKey = try {
-                gson.fromJson(qrData, OMRAnswerKeyResponse::class.java)
-            } catch (e: Exception) {
-                return@withContext ProcessResult.Error("QR kod formatı geçersiz.")
+            val qrAnswerKey = template.resolveQrRegion(correctedWidth, correctedHeight)?.let { qrRegion ->
+                val qrData = qrProcessor.decode(corrected, qrRegion) ?: return@let null
+                try {
+                    gson.fromJson(qrData, OMRAnswerKeyResponse::class.java)
+                } catch (_: Exception) {
+                    null
+                }
             }
+
+            val answerKey = qrAnswerKey ?: fallbackAnswerKey
+                ?: return@withContext ProcessResult.Error(
+                    if (template.qrRegion == null) {
+                        "Bu formda QR alanı yok ve manuel cevap anahtarı bulunamadı."
+                    } else {
+                        "QR kod okunamadı ve manuel cevap anahtarı bulunamadı."
+                    }
+                )
 
             if (answerKey.subjects.isEmpty()) {
-                return@withContext ProcessResult.Error("QR içinde cevap anahtarı bulunamadı.")
+                return@withContext ProcessResult.Error("Cevap anahtarında soru bulunamadı.")
             }
 
-            if (answerKey.subjects.size > template.subjects.size) {
-                return@withContext ProcessResult.Error("Bu form şablonu en fazla ${template.subjects.size} ders destekliyor.")
+            if (answerKey.subjects.size > template.grids.size) {
+                return@withContext ProcessResult.Error("Bu form şablonu en fazla ${template.grids.size} ders destekliyor.")
             }
 
-            val subjectOverrides = answerKey.subjects.mapIndexed { index, subject ->
-                SubjectGridOverride(
-                    name = subject.name.ifBlank { "DERS ${index + 1}" },
+            val subjectOverrides = answerKey.subjects.map { subject ->
+                GridOverride(
                     rows = subject.answers.size.coerceAtLeast(1),
                     cols = deriveOptionCount(subject, expectedExam?.optionCount)
                 )
@@ -78,7 +89,7 @@ class ProcessOMRUseCase @Inject constructor(
 
             val omrResults = bubbleDetector.detect(
                 corrected,
-                template.resolveSubjects(correctedWidth, correctedHeight, subjectOverrides)
+                template.resolveGrids(correctedWidth, correctedHeight, subjectOverrides)
             )
 
             val correctAnswers = mutableListOf<Int>()

@@ -23,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,9 +31,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.omrreader.ui.screens.export.shareFile
+import java.io.File
 import kotlin.math.abs
 
 private data class WeightDialogState(
@@ -48,10 +52,12 @@ fun AnswerKeyScreen(
     onFinish: () -> Unit,
     viewModel: ExamViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var weightDialogState by remember { mutableStateOf<WeightDialogState?>(null) }
     var weightInput by remember { mutableStateOf("") }
     var showQrDialog by remember { mutableStateOf(false) }
+    val formExportState by viewModel.formExportState.collectAsState()
 
     LaunchedEffect(examId) {
         viewModel.loadAnswerEditor(examId)
@@ -60,6 +66,27 @@ fun AnswerKeyScreen(
     LaunchedEffect(Unit) {
         viewModel.uiMessage.collect { message ->
             snackbarHostState.showSnackbar(message)
+        }
+    }
+
+    LaunchedEffect(formExportState) {
+        when (val state = formExportState) {
+            is FormExportState.Success -> {
+                val file = File(state.filePath)
+                if (file.exists()) {
+                    shareFile(context, file, "application/pdf")
+                } else {
+                    snackbarHostState.showSnackbar("Form dosyası bulunamadı.")
+                }
+                viewModel.resetFormExportState()
+            }
+
+            is FormExportState.Error -> {
+                snackbarHostState.showSnackbar(state.message)
+                viewModel.resetFormExportState()
+            }
+
+            else -> Unit
         }
     }
 
@@ -80,13 +107,25 @@ fun AnswerKeyScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
+                    onClick = { viewModel.exportTemplateForm(context) },
+                    enabled = formExportState !is FormExportState.Loading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Optik Formu Paylaş")
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
                     onClick = {
                         viewModel.generateQr()
                         showQrDialog = viewModel.generatedQrBitmap != null
@@ -102,6 +141,7 @@ fun AnswerKeyScreen(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("Kaydet")
+                }
                 }
             }
         }
@@ -126,6 +166,15 @@ fun AnswerKeyScreen(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 8.dp)
                 )
+
+                if (formExportState is FormExportState.Loading) {
+                    Text(
+                        text = "Optik form hazırlanıyor...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
 
             groupedItems.forEach { (subjectIndex, rows) ->

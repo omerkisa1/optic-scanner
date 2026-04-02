@@ -1,8 +1,8 @@
 package com.omrreader.processing
 
 import android.graphics.Bitmap
+import android.graphics.PointF
 import org.opencv.android.Utils
-import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
@@ -16,7 +16,7 @@ import javax.inject.Singleton
 @Singleton
 class PerspectiveCorrector @Inject constructor() {
 
-    fun correct(bitmap: Bitmap): Bitmap? {
+    fun correct(bitmap: Bitmap, template: FormTemplate = FormTemplate.DEFAULT): Bitmap? {
         val source = Mat()
         Utils.bitmapToMat(bitmap, source)
 
@@ -39,17 +39,23 @@ class PerspectiveCorrector @Inject constructor() {
             10.0
         )
 
-        val sourcePoints = detectMarkerBasedCorners(markerBinary, source.width(), source.height())
-            ?: detectPageContourCorners(gray)
+        val markerPoints = detectMarkerBasedCorners(markerBinary, source.width(), source.height(), template)
+        val sourcePoints = markerPoints ?: detectPageContourCorners(gray)
             ?: return null
 
-        val width = FormTemplate.DEFAULT.pageWidth.toDouble()
-        val height = FormTemplate.DEFAULT.pageHeight.toDouble()
+        val destinationTargets = if (markerPoints != null) {
+            template.markerCornerTargetsNormalized()
+        } else {
+            template.pageCornerTargetsNormalized()
+        }
+
+        val width = template.normalizedWidth.toDouble()
+        val height = template.normalizedHeight.toDouble()
         val destinationPoints = MatOfPoint2f(
-            Point(0.0, 0.0),
-            Point(width - 1.0, 0.0),
-            Point(width - 1.0, height - 1.0),
-            Point(0.0, height - 1.0)
+            destinationTargets.topLeft.toCvPoint(),
+            destinationTargets.topRight.toCvPoint(),
+            destinationTargets.bottomRight.toCvPoint(),
+            destinationTargets.bottomLeft.toCvPoint()
         )
 
         val transformMatrix = Imgproc.getPerspectiveTransform(MatOfPoint2f(*sourcePoints), destinationPoints)
@@ -61,14 +67,21 @@ class PerspectiveCorrector @Inject constructor() {
         return output
     }
 
-    private fun detectMarkerBasedCorners(binary: Mat, imageWidth: Int, imageHeight: Int): Array<Point>? {
+    private fun detectMarkerBasedCorners(
+        binary: Mat,
+        imageWidth: Int,
+        imageHeight: Int,
+        template: FormTemplate
+    ): Array<Point>? {
         val contours = mutableListOf<MatOfPoint>()
         val hierarchy = Mat()
         Imgproc.findContours(binary, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
 
-        val imageArea = imageWidth.toDouble() * imageHeight.toDouble()
-        val minMarkerArea = imageArea * 0.00012
-        val maxMarkerArea = imageArea * 0.03
+        val expectedMarkerWidth = imageWidth.toDouble() * template.markerSize.toDouble() / template.normalizedWidth.toDouble()
+        val expectedMarkerHeight = imageHeight.toDouble() * template.markerSize.toDouble() / template.normalizedHeight.toDouble()
+        val expectedMarkerArea = (expectedMarkerWidth * expectedMarkerHeight).coerceAtLeast(36.0)
+        val minMarkerArea = expectedMarkerArea * 0.20
+        val maxMarkerArea = expectedMarkerArea * 8.0
 
         val candidates = contours.mapNotNull { contour ->
             val area = Imgproc.contourArea(contour)
@@ -77,17 +90,18 @@ class PerspectiveCorrector @Inject constructor() {
             val rect = Imgproc.boundingRect(contour)
             if (rect.width <= 0 || rect.height <= 0) return@mapNotNull null
 
-            val aspectRatio = rect.width.toDouble() / rect.height.toDouble()
-            if (aspectRatio < 0.55 || aspectRatio > 1.45) return@mapNotNull null
-
-            val peri = Imgproc.arcLength(MatOfPoint2f(*contour.toArray()), true)
+            val contour2f = MatOfPoint2f(*contour.toArray())
+            val peri = Imgproc.arcLength(contour2f, true)
             val approx = MatOfPoint2f()
-            Imgproc.approxPolyDP(MatOfPoint2f(*contour.toArray()), approx, 0.05 * peri, true)
-            if (approx.total() < 4) return@mapNotNull null
+            Imgproc.approxPolyDP(contour2f, approx, 0.04 * peri, true)
+            if (approx.total() != 4L) return@mapNotNull null
+
+            val aspectRatio = rect.width.toDouble() / rect.height.toDouble()
+            if (aspectRatio < 0.60 || aspectRatio > 1.40) return@mapNotNull null
 
             val bboxArea = (rect.width * rect.height).toDouble().coerceAtLeast(1.0)
             val fillRatio = area / bboxArea
-            if (fillRatio < 0.35) return@mapNotNull null
+            if (fillRatio < 0.55) return@mapNotNull null
 
             MarkerCandidate(
                 rect = rect,
@@ -97,11 +111,13 @@ class PerspectiveCorrector @Inject constructor() {
 
         if (candidates.size < 4) return null
 
+        val expected = template.markerCentersForImage(imageWidth, imageHeight)
+
         val cornerTargets = listOf(
-            CornerType.TOP_LEFT to Point(0.0, 0.0),
-            CornerType.TOP_RIGHT to Point(imageWidth.toDouble(), 0.0),
-            CornerType.BOTTOM_RIGHT to Point(imageWidth.toDouble(), imageHeight.toDouble()),
-            CornerType.BOTTOM_LEFT to Point(0.0, imageHeight.toDouble())
+            CornerType.TOP_LEFT to expected.topLeft,
+            CornerType.TOP_RIGHT to expected.topRight,
+            CornerType.BOTTOM_RIGHT to expected.bottomRight,
+            CornerType.BOTTOM_LEFT to expected.bottomLeft
         )
 
         val selected = mutableMapOf<CornerType, MarkerCandidate>()
@@ -110,7 +126,7 @@ class PerspectiveCorrector @Inject constructor() {
         for ((cornerType, target) in cornerTargets) {
             val preferred = pool.filter { matchesQuadrant(it.center, cornerType, imageWidth, imageHeight) }
             val sourcePool = if (preferred.isNotEmpty()) preferred else pool
-            val best = sourcePool.minByOrNull { distanceSquared(it.center, target) } ?: return null
+            val best = sourcePool.minByOrNull { distanceSquared(it.center, target.toCvPoint()) } ?: return null
             selected[cornerType] = best
             pool.remove(best)
         }
@@ -183,6 +199,8 @@ class PerspectiveCorrector @Inject constructor() {
         val dy = a.y - b.y
         return dx * dx + dy * dy
     }
+
+    private fun PointF.toCvPoint(): Point = Point(x.toDouble(), y.toDouble())
 
     private data class MarkerCandidate(
         val rect: Rect,

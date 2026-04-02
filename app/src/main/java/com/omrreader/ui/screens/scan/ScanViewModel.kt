@@ -5,8 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.omrreader.data.repository.ExamRepository
 import com.omrreader.data.repository.ResultRepository
+import com.omrreader.domain.model.Exam
+import com.omrreader.domain.model.OMRAnswerKeyResponse
 import com.omrreader.domain.model.ProcessResult
 import com.omrreader.domain.model.ScoreResult
+import com.omrreader.domain.model.SubjectInfo
 import com.omrreader.domain.model.StudentResult
 import com.omrreader.domain.usecase.ProcessOMRUseCase
 import com.omrreader.scoring.ScoringEngine
@@ -58,7 +61,12 @@ class ScanViewModel @Inject constructor(
             _scanState.value = ScanState.Processing
             try {
                 val exam = _activeExamId.value?.let { examRepository.getExamById(it) }
-                val result = processOMRUseCase.process(bitmap, expectedExam = exam)
+                val fallbackAnswerKey = exam?.let { buildFallbackAnswerKey(it) }
+                val result = processOMRUseCase.process(
+                    bitmap = bitmap,
+                    expectedExam = exam,
+                    fallbackAnswerKey = fallbackAnswerKey
+                )
                 _scanState.value = when (result) {
                     is ProcessResult.Success -> {
                         _reviewResult.value = result
@@ -174,5 +182,49 @@ class ScanViewModel @Inject constructor(
         _scanState.value = ScanState.Ready
         _reviewResult.value = null
         _answerOverrides.value = emptyMap()
+    }
+
+    private suspend fun buildFallbackAnswerKey(exam: Exam): OMRAnswerKeyResponse? {
+        val keys = examRepository.getAnswerKeysForExam(exam.id)
+        if (keys.isEmpty()) return null
+
+        val subjects = keys
+            .groupBy { it.subjectIndex }
+            .toSortedMap()
+            .map { (subjectIndex, subjectKeys) ->
+                val ordered = subjectKeys.sortedBy { it.questionNumber }
+                val answers = ordered.map { it.correctAnswer }
+                val weights = ordered.map { it.weight }
+
+                SubjectInfo(
+                    name = defaultSubjectName(exam, subjectIndex),
+                    answers = answers,
+                    weights = weights,
+                    optionCount = inferOptionCount(answers, exam.optionCount)
+                )
+            }
+
+        if (subjects.isEmpty()) return null
+
+        return OMRAnswerKeyResponse(
+            v = 1,
+            id = "exam_${exam.id}",
+            name = exam.name,
+            subjects = subjects,
+            total = 100
+        )
+    }
+
+    private fun inferOptionCount(answers: List<Int>, fallback: Int): Int {
+        val inferred = (answers.maxOrNull() ?: -1) + 1
+        return inferred.coerceAtLeast(fallback).coerceIn(2, 8)
+    }
+
+    private fun defaultSubjectName(exam: Exam, subjectIndex: Int): String {
+        return if (exam.subjectCount == 1 && subjectIndex == 0) {
+            exam.name.substringBefore("|").substringBefore("[").trim().ifBlank { "DERS 1" }
+        } else {
+            "DERS ${subjectIndex + 1}"
+        }
     }
 }
