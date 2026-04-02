@@ -36,6 +36,7 @@ import java.util.concurrent.Executors
 fun CameraPreview(
     onImageCaptured: (Bitmap) -> Unit,
     onError: (String) -> Unit,
+    captureEnabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -91,6 +92,7 @@ fun CameraPreview(
 
         FloatingActionButton(
             onClick = {
+                if (!captureEnabled) return@FloatingActionButton
                 imageCapture.takePicture(
                     cameraExecutor,
                     object : ImageCapture.OnImageCapturedCallback() {
@@ -115,7 +117,7 @@ fun CameraPreview(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 32.dp)
         ) {
-            Text("Çek")
+            Text(if (captureEnabled) "Çek" else "İşleniyor")
         }
     }
 }

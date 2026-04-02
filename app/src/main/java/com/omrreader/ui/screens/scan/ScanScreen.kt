@@ -101,6 +101,7 @@ fun ScanScreen(
                             snackbarHostState.showSnackbar(message)
                         }
                     },
+                    captureEnabled = scanState !is ScanState.Processing,
                     modifier = Modifier.fillMaxSize()
                 )
 
