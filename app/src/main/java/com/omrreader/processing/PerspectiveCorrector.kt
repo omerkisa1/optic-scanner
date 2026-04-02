@@ -3,6 +3,7 @@ package com.omrreader.processing
 import android.graphics.Bitmap
 import android.graphics.PointF
 import org.opencv.android.Utils
+import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
@@ -89,10 +90,10 @@ class PerspectiveCorrector @Inject constructor() {
         val expectedMarkerArea = (expectedMarkerWidth * expectedMarkerHeight).coerceAtLeast(36.0)
         val minMarkerArea = expectedMarkerArea * 0.20
         val maxMarkerArea = expectedMarkerArea * 8.0
-        val minMarkerWidth = (expectedMarkerWidth * 0.45).coerceAtLeast(8.0)
-        val maxMarkerWidth = expectedMarkerWidth * 2.2
-        val minMarkerHeight = (expectedMarkerHeight * 0.45).coerceAtLeast(8.0)
-        val maxMarkerHeight = expectedMarkerHeight * 2.2
+        val minMarkerWidth = (expectedMarkerWidth * 0.20).coerceAtLeast(6.0)
+        val maxMarkerWidth = expectedMarkerWidth * 3.8
+        val minMarkerHeight = (expectedMarkerHeight * 0.20).coerceAtLeast(6.0)
+        val maxMarkerHeight = expectedMarkerHeight * 3.8
 
         val candidates = contours.mapNotNull { contour ->
             val area = Imgproc.contourArea(contour)
@@ -107,14 +108,14 @@ class PerspectiveCorrector @Inject constructor() {
             val peri = Imgproc.arcLength(contour2f, true)
             val approx = MatOfPoint2f()
             Imgproc.approxPolyDP(contour2f, approx, 0.04 * peri, true)
-            if (approx.total() < 4L || approx.total() > 8L) return@mapNotNull null
+            if (approx.total() < 4L || approx.total() > 12L) return@mapNotNull null
 
             val aspectRatio = rect.width.toDouble() / rect.height.toDouble()
             if (aspectRatio < 0.60 || aspectRatio > 1.40) return@mapNotNull null
 
             val bboxArea = (rect.width * rect.height).toDouble().coerceAtLeast(1.0)
             val fillRatio = area / bboxArea
-            if (fillRatio < 0.45) return@mapNotNull null
+            if (fillRatio < 0.35) return@mapNotNull null
 
             MarkerCandidate(
                 rect = rect,
@@ -247,15 +248,24 @@ class PerspectiveCorrector @Inject constructor() {
     }
 
     private fun resizeFallbackIfLikelyAligned(source: Mat, template: FormTemplate): Bitmap? {
-        val sourceRatio = source.width().toDouble() / source.height().coerceAtLeast(1).toDouble()
+        if (source.empty() || source.width() <= 1 || source.height() <= 1) return null
+
+        val sourceRatio = source.width().toDouble() / source.height().toDouble()
         val targetRatio = template.normalizedWidth.toDouble() / template.normalizedHeight.toDouble()
-        if (abs(sourceRatio - targetRatio) > 0.2) {
-            return null
+        val rotatedRatio = source.height().toDouble() / source.width().toDouble()
+
+        val needsRotate = abs(rotatedRatio - targetRatio) + 0.02 < abs(sourceRatio - targetRatio)
+        val oriented = if (needsRotate) {
+            Mat().also { rotated -> Core.rotate(source, rotated, Core.ROTATE_90_CLOCKWISE) }
+        } else {
+            source
         }
+
+        val cropped = centerCropToAspect(oriented, targetRatio)
 
         val resized = Mat()
         Imgproc.resize(
-            source,
+            cropped,
             resized,
             Size(template.normalizedWidth.toDouble(), template.normalizedHeight.toDouble())
         )
@@ -267,6 +277,27 @@ class PerspectiveCorrector @Inject constructor() {
         )
         Utils.matToBitmap(resized, output)
         return output
+    }
+
+    private fun centerCropToAspect(source: Mat, targetRatio: Double): Mat {
+        val width = source.width()
+        val height = source.height()
+        if (width <= 1 || height <= 1) return source
+
+        val currentRatio = width.toDouble() / height.toDouble()
+        if (abs(currentRatio - targetRatio) <= 0.01) {
+            return source
+        }
+
+        return if (currentRatio > targetRatio) {
+            val cropWidth = (height * targetRatio).toInt().coerceIn(1, width)
+            val x = ((width - cropWidth) / 2).coerceAtLeast(0)
+            Mat(source, Rect(x, 0, cropWidth, height))
+        } else {
+            val cropHeight = (width / targetRatio).toInt().coerceIn(1, height)
+            val y = ((height - cropHeight) / 2).coerceAtLeast(0)
+            Mat(source, Rect(0, y, width, cropHeight))
+        }
     }
 
     private fun PointF.toCvPoint(): Point = Point(x.toDouble(), y.toDouble())
