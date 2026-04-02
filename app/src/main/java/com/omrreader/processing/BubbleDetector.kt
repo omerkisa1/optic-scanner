@@ -5,9 +5,12 @@ import com.omrreader.domain.model.BubbleState
 import com.omrreader.domain.model.QuestionResult
 import com.omrreader.domain.model.ThresholdConfig
 import org.opencv.android.Utils
+import org.opencv.core.Core
+import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Point
 import org.opencv.core.Rect
+import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import javax.inject.Inject
@@ -21,7 +24,6 @@ class BubbleDetector @Inject constructor() {
         val mat = Mat()
         Utils.bitmapToMat(bitmap, mat)
 
-        // Convert to grayscale & binarize using adaptive threshold
         val gray = Mat()
         Imgproc.cvtColor(mat, gray, Imgproc.COLOR_BGR2GRAY)
         
@@ -41,13 +43,12 @@ class BubbleDetector @Inject constructor() {
                 val fillRatios = mutableListOf<Double>()
 
                 for (col in 0 until subject.cols) {
-                    val bx = startX + (col * subject.horizontalGap)
-                    val by = startY + (row * subject.verticalGap)
+                    val bx = startX + (col * subject.horizontalGap) + ((subject.horizontalGap - subject.bubbleWidth) / 2)
+                    val by = startY + (row * subject.verticalGap) + ((subject.verticalGap - subject.bubbleHeight) / 2)
                     val bw = subject.bubbleWidth
                     val bh = subject.bubbleHeight
 
-                    // Prevent out of bounds
-                    if (bx + bw > binary.cols() || by + bh > binary.rows()) {
+                    if (bx < 0 || by < 0 || bx + bw > binary.cols() || by + bh > binary.rows()) {
                         fillRatios.add(0.0)
                         bubbleStates.add(BubbleState.EMPTY)
                         continue
@@ -56,44 +57,25 @@ class BubbleDetector @Inject constructor() {
                     val roi = Rect(bx, by, bw, bh)
                     val bubbleMat = Mat(binary, roi)
 
-                    // Provide circle mask to ignore square bounding box corners
-                    val mask = Mat.zeros(bubbleMat.size(), org.opencv.core.CvType.CV_8U)
-                    Imgproc.circle(mask, Point(bw / 2.0, bh / 2.0), bw / 2, org.opencv.core.Scalar(255.0), -1)
+                    val mask = createCircleMask(bw, bh)
+                    val maskedBubble = Mat()
+                    Core.bitwise_and(bubbleMat, bubbleMat, maskedBubble, mask)
 
-                    val filledPixels = org.opencv.core.Core.countNonZero(
-                        // Bitwise AND to keep only circular Region
-                        bubbleMat
-                    )
-                    
-                    val totalPixels = Math.PI * (bw / 2.0) * (bh / 2.0)
-                    val ratio = filledPixels / totalPixels
+                    val filledPixels = Core.countNonZero(maskedBubble)
+                    val totalPixels = Core.countNonZero(mask).coerceAtLeast(1)
+                    val ratio = filledPixels.toDouble() / totalPixels.toDouble()
                     fillRatios.add(ratio)
 
                     val state = when {
-                        ratio > config.filledMin -> BubbleState.FILLED // crossed out or fully dark
-                        ratio >= config.markedMin -> BubbleState.MARKED // valid mark
+                        ratio > config.filledMin -> BubbleState.FILLED
+                        ratio > config.markedMin -> BubbleState.MARKED
+                        ratio > (config.markedMin - config.ambiguousRange) -> BubbleState.AMBIGUOUS
                         else -> BubbleState.EMPTY
                     }
                     bubbleStates.add(state)
                 }
 
-                // Decide final answer and validity
-                val tamKarali = bubbleStates.mapIndexedNotNull { index, state -> if (state == BubbleState.FILLED) index else null }
-                val isaretli = bubbleStates.mapIndexedNotNull { index, state -> if (state == BubbleState.MARKED) index else null }
-
-                val selectedAnswer: Int?
-                val isValid: Boolean
-
-                if (isaretli.size == 1) {
-                    selectedAnswer = isaretli[0]
-                    isValid = true
-                } else if (isaretli.isEmpty()) {
-                    selectedAnswer = null
-                    isValid = true
-                } else {
-                    selectedAnswer = null
-                    isValid = false // Multi-mark
-                }
+                val (selectedAnswer, isValid) = determineAnswer(bubbleStates)
 
                 results.add(
                     QuestionResult(
@@ -108,5 +90,25 @@ class BubbleDetector @Inject constructor() {
         }
 
         return results
+    }
+
+    private fun determineAnswer(states: List<BubbleState>): Pair<Int?, Boolean> {
+        val marked = states.indices.filter { states[it] == BubbleState.MARKED }
+        val ambiguous = states.indices.filter { states[it] == BubbleState.AMBIGUOUS }
+
+        return when {
+            marked.size == 1 -> marked.first() to true
+            marked.isEmpty() && ambiguous.size == 1 -> ambiguous.first() to true
+            marked.isEmpty() -> null to true
+            else -> null to false
+        }
+    }
+
+    private fun createCircleMask(width: Int, height: Int): Mat {
+        val mask = Mat.zeros(height, width, CvType.CV_8UC1)
+        val center = Point(width / 2.0, height / 2.0)
+        val radius = (minOf(width, height) / 2.0 - 2.0).coerceAtLeast(1.0)
+        Imgproc.circle(mask, center, radius.toInt(), Scalar(255.0), -1)
+        return mask
     }
 }

@@ -24,15 +24,16 @@ class ProcessOMRUseCase @Inject constructor(
 ) {
     suspend fun process(bitmap: Bitmap): ProcessResult = withContext(Dispatchers.Default) {
         try {
-            // 1. Perspective Correction
             val corrected = perspectiveCorrector.correct(bitmap)
-                ?: return@withContext ProcessResult.Error("Kağıt algılanamadı. Lütfen düz bir zeminde tekrar çekin.")
+                ?: return@withContext ProcessResult.Error("Kağıt algılanamadı. Lütfen düz bir yüzeyde, iyi aydınlatmada tekrar çekin.")
 
             val template = FormTemplate.DEFAULT
+            val correctedWidth = corrected.width
+            val correctedHeight = corrected.height
 
-            // 2. Decode QR Code
-            val qrData = qrProcessor.decode(corrected, template.qrRegion)
-                ?: return@withContext ProcessResult.Error("QR kod okunamadı. Lütfen kamera açısını ayarlayıp tekrar deneyin.")
+            val qrRegion = template.resolveQrRegion(correctedWidth, correctedHeight)
+            val qrData = qrProcessor.decode(corrected, qrRegion)
+                ?: return@withContext ProcessResult.Error("QR kod okunamadı. QR kodun görünür ve net olduğundan emin olun.")
 
             val answerKey = try {
                 gson.fromJson(qrData, OMRAnswerKeyResponse::class.java)
@@ -40,19 +41,30 @@ class ProcessOMRUseCase @Inject constructor(
                 return@withContext ProcessResult.Error("QR kod formatı geçersiz.")
             }
 
-            // 3. OCR (Name, Number, Class)
-            val nameResult = ocrProcessor.recognize(corrected, template.nameRegion, "name")
-            val numberResult = ocrProcessor.recognize(corrected, template.numberRegion, "number")
-            val classResult = ocrProcessor.recognize(corrected, template.classRegion, "class")
+            val nameResult = ocrProcessor.recognize(
+                corrected,
+                template.resolveNameRegion(correctedWidth, correctedHeight),
+                "name"
+            )
+            val numberResult = ocrProcessor.recognize(
+                corrected,
+                template.resolveNumberRegion(correctedWidth, correctedHeight),
+                "number"
+            )
+            val classResult = ocrProcessor.recognize(
+                corrected,
+                template.resolveClassRegion(correctedWidth, correctedHeight),
+                "class"
+            )
 
-            // 4. Optical Mark Recognition (Bubble Detect)
-            val omrResults = bubbleDetector.detect(corrected, template.subjects)
+            val omrResults = bubbleDetector.detect(
+                corrected,
+                template.resolveSubjects(correctedWidth, correctedHeight)
+            )
 
-            // Normalize Correct Answers and Weights for ScoringEngine
             val correctAnswers = mutableListOf<Int>()
             val weights = mutableListOf<Double>()
             
-            // Assume subjects are ordered as in template
             answerKey.subjects.forEach { subject ->
                 correctAnswers.addAll(subject.answers)
                 weights.addAll(subject.weights)
@@ -60,14 +72,12 @@ class ProcessOMRUseCase @Inject constructor(
 
             val studentAnswers = omrResults.map { it.selectedAnswer }
 
-            // 5. Calculate Score
             val scoreResult = scoringEngine.calculateScore(
                 studentAnswers = studentAnswers,
                 correctAnswers = correctAnswers,
                 weights = weights
             )
 
-            // 6. Return Data
             ProcessResult.Success(
                 studentName = nameResult.processedText,
                 studentNumber = numberResult.processedText,
@@ -75,7 +85,7 @@ class ProcessOMRUseCase @Inject constructor(
                 omrResults = omrResults,
                 scoreResult = scoreResult,
                 answerKey = answerKey,
-                correctedImagePath = null // Can save to disk if needed
+                correctedImagePath = null
             )
         } catch (e: Exception) {
             e.printStackTrace()
