@@ -50,7 +50,8 @@ private data class QRPayload(
 private data class QRSubject(
     val name: String,
     val answers: List<Int>,
-    val weights: List<Double>
+    val weights: List<Double>,
+    val optionCount: Int? = null
 )
 
 @HiltViewModel
@@ -400,7 +401,8 @@ class ExamViewModel @Inject constructor(
                 name = subjects.getOrNull(subjectIndex)?.name?.ifBlank { "DERS ${subjectIndex + 1}" }
                     ?: "DERS ${subjectIndex + 1}",
                 answers = rows.map { it.correctAnswer },
-                weights = rows.map { (it.weight * 100).toInt() / 100.0 }
+                weights = rows.map { (it.weight * 100).toInt() / 100.0 },
+                optionCount = subjects.getOrNull(subjectIndex)?.optionCount
             )
         }
 

@@ -35,6 +35,29 @@ data class FormTemplate(
         return subjects.map { it.resolve(imageWidth, imageHeight) }
     }
 
+    fun resolveSubjects(
+        imageWidth: Int,
+        imageHeight: Int,
+        overrides: List<SubjectGridOverride>
+    ): List<SubjectGrid> {
+        if (overrides.isEmpty()) {
+            return resolveSubjects(imageWidth, imageHeight)
+        }
+
+        if (subjects.isEmpty()) return emptyList()
+
+        return overrides.mapIndexed { index, override ->
+            val template = subjects.getOrNull(index) ?: subjects.last()
+            template.resolve(
+                imageWidth = imageWidth,
+                imageHeight = imageHeight,
+                rowsOverride = override.rows.coerceAtLeast(1),
+                colsOverride = override.cols.coerceAtLeast(2),
+                nameOverride = override.name.ifBlank { template.name }
+            )
+        }
+    }
+
     companion object {
         val DEFAULT = FormTemplate(
             name = "standard_2x20",
@@ -63,28 +86,43 @@ data class FormTemplate(
     }
 }
 
+data class SubjectGridOverride(
+    val name: String,
+    val rows: Int,
+    val cols: Int
+)
+
 data class SubjectGridTemplate(
     val name: String,
     val gridRegion: RectF,
     val rows: Int,
     val cols: Int
 ) {
-    fun resolve(imageWidth: Int, imageHeight: Int): SubjectGrid {
+    fun resolve(
+        imageWidth: Int,
+        imageHeight: Int,
+        rowsOverride: Int = rows,
+        colsOverride: Int = cols,
+        nameOverride: String = name
+    ): SubjectGrid {
         val regionPx = gridRegion.toPixelRect(imageWidth, imageHeight)
         val gridWidth = (regionPx.right - regionPx.left).coerceAtLeast(1)
         val gridHeight = (regionPx.bottom - regionPx.top).coerceAtLeast(1)
 
-        val horizontalGap = (gridWidth / cols).coerceAtLeast(1)
-        val verticalGap = (gridHeight / rows).coerceAtLeast(1)
+        val finalRows = rowsOverride.coerceAtLeast(1)
+        val finalCols = colsOverride.coerceAtLeast(2)
+
+        val horizontalGap = (gridWidth / finalCols).coerceAtLeast(1)
+        val verticalGap = (gridHeight / finalRows).coerceAtLeast(1)
 
         val bubbleWidth = (horizontalGap * 0.62f).toInt().coerceAtLeast(10)
         val bubbleHeight = (verticalGap * 0.62f).toInt().coerceAtLeast(10)
 
         return SubjectGrid(
-            name = name,
+            name = nameOverride,
             gridRegion = regionPx,
-            rows = rows,
-            cols = cols,
+            rows = finalRows,
+            cols = finalCols,
             bubbleWidth = bubbleWidth,
             bubbleHeight = bubbleHeight,
             horizontalGap = horizontalGap,

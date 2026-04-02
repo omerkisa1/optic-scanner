@@ -54,5 +54,6 @@ data class OMRAnswerKeyResponse(
 data class SubjectInfo(
     val name: String,
     val answers: List<Int>,
-    val weights: List<Double>
+    val weights: List<Double>,
+    val optionCount: Int? = null
 )

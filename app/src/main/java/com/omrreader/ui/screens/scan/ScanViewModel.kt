@@ -52,9 +52,12 @@ class ScanViewModel @Inject constructor(
     }
 
     fun processImage(bitmap: Bitmap) {
+        if (_scanState.value is ScanState.Processing) return
+
         viewModelScope.launch(Dispatchers.Default) {
             _scanState.value = ScanState.Processing
-            val result = processOMRUseCase.process(bitmap)
+            val exam = _activeExamId.value?.let { examRepository.getExamById(it) }
+            val result = processOMRUseCase.process(bitmap, expectedExam = exam)
             _scanState.value = when (result) {
                 is ProcessResult.Success -> {
                     _reviewResult.value = result

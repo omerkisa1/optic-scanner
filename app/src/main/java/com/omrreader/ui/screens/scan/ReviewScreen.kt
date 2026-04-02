@@ -9,10 +9,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -145,9 +148,11 @@ fun ReviewScreen(
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
             )
 
-            LazyColumn(
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 itemsIndexed(result.omrResults) { index, question ->
                     val selected = effectiveAnswers.getOrNull(index)
@@ -165,7 +170,7 @@ fun ReviewScreen(
                         else -> Color(0xFF757575)
                     }
 
-                    Row(
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
@@ -174,23 +179,36 @@ fun ReviewScreen(
                                     optionCount = question.bubbleStates.size
                                 )
                             }
-                            .padding(vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(vertical = 2.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
                     ) {
-                        Text(
-                            text = "${question.questionNumber}. ${bubbleVisuals(selected, question.bubbleStates.size)}",
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = "Doğru: ${answerLabel(correct)}",
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = status,
-                            color = statusColor,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Soru ${question.questionNumber}",
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = status,
+                                    color = statusColor,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Text(text = "İşaret: ${bubbleVisuals(selected, question.bubbleStates.size)}")
+                            Text(text = "Doğru: ${answerLabel(correct)}")
+                        }
                     }
                 }
             }
