@@ -14,14 +14,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.omrreader.domain.model.Exam
-import com.omrreader.ui.navigation.Screen
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onNavigateToCreate: () -> Unit,
     onNavigateToDetail: (Long) -> Unit,
+    onNavigateToScan: (Long) -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val exams by viewModel.exams.collectAsState()
@@ -63,11 +65,12 @@ fun HomeScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(exams) { exam ->
+                items(exams) { item ->
                     ExamCard(
-                        exam = exam,
-                        onClick = { onNavigateToDetail(exam.id) },
-                        onDelete = { viewModel.deleteExam(exam) }
+                        item = item,
+                        onClick = { onNavigateToDetail(item.exam.id) },
+                        onDelete = { viewModel.deleteExam(item.exam) },
+                        onScan = { onNavigateToScan(item.exam.id) }
                     )
                 }
             }
@@ -76,7 +79,17 @@ fun HomeScreen(
 }
 
 @Composable
-fun ExamCard(exam: Exam, onClick: () -> Unit, onDelete: () -> Unit) {
+fun ExamCard(
+    item: HomeExamItem,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+    onScan: () -> Unit
+) {
+    val exam = item.exam
+    val date = remember(exam.createdAt) {
+        SimpleDateFormat("dd.MM.yyyy", Locale("tr", "TR")).format(Date(exam.createdAt))
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -96,9 +109,26 @@ fun ExamCard(exam: Exam, onClick: () -> Unit, onDelete: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Tarih: $date",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Taranan Öğrenci: ${item.scannedStudentCount}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Sil", tint = MaterialTheme.colorScheme.error)
+
+            Column(horizontalAlignment = Alignment.End) {
+                TextButton(onClick = onScan) {
+                    Text("Tara")
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Sil", tint = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }

@@ -28,7 +28,8 @@ fun RootNavGraph() {
         composable(Screen.Home.route) {
             HomeScreen(
                 onNavigateToCreate = { navController.navigate(Screen.CreateExam.route) },
-                onNavigateToDetail = { examId -> navController.navigate(Screen.ExamDetail.createRoute(examId)) }
+                onNavigateToDetail = { examId -> navController.navigate(Screen.ExamDetail.createRoute(examId)) },
+                onNavigateToScan = { examId -> navController.navigate(Screen.Scan.createRoute(examId)) }
             )
         }
 
