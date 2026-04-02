@@ -10,7 +10,7 @@ class OMRApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        if (OpenCVLoader.initLocal()) {
+        if (OpenCVLoader.initDebug()) {
             Log.i("OMRApplication", "OpenCV loaded successfully")
         } else {
             Log.e("OMRApplication", "OpenCV initialization failed!")
