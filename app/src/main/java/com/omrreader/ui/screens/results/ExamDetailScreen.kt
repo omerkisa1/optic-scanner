@@ -26,7 +26,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -38,9 +37,9 @@ fun ExamDetailScreen(
     onBack: () -> Unit,
     onScan: (Long) -> Unit,
     onOpenResult: (Long) -> Unit,
+    onOpenExport: (Long) -> Unit,
     viewModel: ResultViewModel = hiltViewModel()
 ) {
-    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     val exam by viewModel.exam.collectAsState()
@@ -142,16 +141,10 @@ fun ExamDetailScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
-                    onClick = { viewModel.exportExcel(examId, context) },
+                    onClick = { onOpenExport(examId) },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("Excel")
-                }
-                Button(
-                    onClick = { viewModel.exportPdf(examId, context) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("PDF")
+                    Text("Dışa Aktar")
                 }
                 Button(
                     onClick = { onScan(examId) },

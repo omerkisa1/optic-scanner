@@ -9,6 +9,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.omrreader.ui.screens.exam.AnswerKeyScreen
 import com.omrreader.ui.screens.exam.CreateExamScreen
+import com.omrreader.ui.screens.export.ExportScreen
 import com.omrreader.ui.screens.home.HomeScreen
 import com.omrreader.ui.screens.scan.ReviewScreen
 import com.omrreader.ui.screens.scan.ScanScreen
@@ -65,7 +66,8 @@ fun RootNavGraph() {
                 examId = examId,
                 onBack = { navController.popBackStack() },
                 onScan = { eId -> navController.navigate(Screen.Scan.createRoute(eId)) },
-                onOpenResult = { resultId -> navController.navigate(Screen.ResultDetail.createRoute(resultId)) }
+                onOpenResult = { resultId -> navController.navigate(Screen.ResultDetail.createRoute(resultId)) },
+                onOpenExport = { eId -> navController.navigate(Screen.Export.createRoute(eId)) }
             )
         }
 
@@ -103,6 +105,17 @@ fun RootNavGraph() {
             val resultId = backStackEntry.arguments?.getLong("resultId") ?: 0L
             ResultDetailScreen(
                 resultId = resultId,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Screen.Export.route,
+            arguments = listOf(navArgument("examId") { type = NavType.LongType })
+        ) { backStackEntry ->
+            val examId = backStackEntry.arguments?.getLong("examId") ?: 0L
+            ExportScreen(
+                examId = examId,
                 onBack = { navController.popBackStack() }
             )
         }
