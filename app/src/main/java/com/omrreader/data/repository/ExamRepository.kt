@@ -84,7 +84,6 @@ class ExamRepository @Inject constructor(
         )
     }
 
-    // Mapping extensions
     private fun ExamEntity.toDomain() = Exam(id, name, subjectCount, questionsPerSubject, optionCount, totalPoints, createdAt, qrData)
     private fun Exam.toEntity() = ExamEntity(id, name, subjectCount, questionsPerSubject, optionCount, totalPoints, createdAt, qrData)
     

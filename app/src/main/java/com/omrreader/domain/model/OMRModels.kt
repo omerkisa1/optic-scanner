@@ -36,14 +36,13 @@ sealed class ProcessResult {
         val className: String,
         val omrResults: List<QuestionResult>,
         val scoreResult: ScoreResult,
-        val answerKey: OMRAnswerKeyResponse?, // We'll hold the parsed payload
+        val answerKey: OMRAnswerKeyResponse?,
         val correctedImagePath: String? = null
     ) : ProcessResult()
 
     data class Error(val message: String) : ProcessResult()
 }
 
-// Custom model to hold the QR code decoded format
 data class OMRAnswerKeyResponse(
     val v: Int,
     val id: String,

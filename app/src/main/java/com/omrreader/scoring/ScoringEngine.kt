@@ -21,14 +21,12 @@ class ScoringEngine @Inject constructor() {
     ): List<Double>? {
         val lockedTotal = lockedWeights.values.sum()
 
-        // Kilitli toplam >= total ise yeniden dağıtılacak puan kalmaz (eşitse de kalmaz, ama geçerli sayılabilir, genelde hata veririz)
         if (lockedTotal >= total && lockedWeights.size < questionCount) return null
 
         val remainingTotal = total - lockedTotal
         val remainingCount = questionCount - lockedWeights.size
 
         if (remainingCount <= 0) {
-            // All locked, check total
             return if (lockedTotal == total) {
                 List(questionCount) { index -> lockedWeights[index] ?: 0.0 }
             } else null
@@ -39,11 +37,9 @@ class ScoringEngine @Inject constructor() {
             lockedWeights[index] ?: remainingWeight
         }
 
-        // Float accuracy correction on the last unlocked question
         val currentTotal = lockedTotal + (remainingWeight * remainingCount)
         val diff = total - currentTotal
-        
-        // Find last unlocked
+
         val lastUnlockedIndex = weights.indices.lastOrNull { !lockedWeights.containsKey(it) }
         if (lastUnlockedIndex != null && diff != 0.0) {
             weights[lastUnlockedIndex] = weights[lastUnlockedIndex] + diff

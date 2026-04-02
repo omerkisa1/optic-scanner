@@ -36,7 +36,6 @@ data class FormTemplate(
     }
 
     companion object {
-        // A4 reference at reduced processing size.
         val DEFAULT = FormTemplate(
             name = "standard_2x20",
             pageWidth = 1240,

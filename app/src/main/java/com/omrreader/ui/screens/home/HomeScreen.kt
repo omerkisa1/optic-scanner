@@ -28,7 +28,6 @@ fun HomeScreen(
 ) {
     val exams by viewModel.exams.collectAsState()
 
-    // Reload on appear just in case
     LaunchedEffect(Unit) { viewModel.loadExams() }
 
     Scaffold(

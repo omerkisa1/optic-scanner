@@ -20,7 +20,6 @@ class QRProcessor @Inject constructor() {
 
     suspend fun decode(bitmap: Bitmap, region: android.graphics.Rect): String? {
         return try {
-            // Crop QR region
             val cropped = Bitmap.createBitmap(bitmap, region.left, region.top, region.width(), region.height())
             val image = InputImage.fromBitmap(cropped, 0)
             

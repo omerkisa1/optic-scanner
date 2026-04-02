@@ -9,8 +9,7 @@ import android.util.Log
 class OMRApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        
-        // OpenCV Başlatma Denemesi
+
         if (OpenCVLoader.initLocal()) {
             Log.i("OMRApplication", "OpenCV loaded successfully")
         } else {

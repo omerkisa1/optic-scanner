@@ -26,17 +26,16 @@ class OCRProcessor @Inject constructor() {
             
             val result = recognizer.process(image).await()
             val text = result.text.trim()
-            
-            // Basic post-processing
+
             val processed = when (regionName) {
                 "number" -> text.filter { it.isDigit() }
-                "name" -> text // Maybe filter non-letters
+                "name" -> text
                 else -> text
             }
 
             OCRResult(
                 rawText = text,
-                confidence = 0.8f, // ML Kit v2 doesn't always expose confidence per block easily without deep dive
+                confidence = 0.8f,
                 processedText = processed,
                 region = regionName
             )
