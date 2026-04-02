@@ -1,6 +1,7 @@
 package com.omrreader.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -12,6 +13,7 @@ import com.omrreader.ui.screens.exam.CreateExamScreen
 import com.omrreader.ui.screens.home.HomeScreen
 import com.omrreader.ui.screens.scan.ReviewScreen
 import com.omrreader.ui.screens.scan.ScanScreen
+import com.omrreader.ui.screens.scan.ScanViewModel
 
 @Composable
 fun RootNavGraph() {
@@ -78,10 +80,18 @@ fun RootNavGraph() {
         }
 
         composable(Screen.ReviewScan.route) {
-            ReviewScreen(
-                onBack = { navController.popBackStack() },
-                onConfirm = { navController.popBackStack() }
-            )
+            val scanEntry = navController.previousBackStackEntry
+            if (scanEntry != null) {
+                val scanViewModel: ScanViewModel = hiltViewModel(scanEntry)
+                ReviewScreen(
+                    onConfirmSaved = { navController.popBackStack() },
+                    onRetake = { navController.popBackStack() },
+                    onCancel = {
+                        navController.popBackStack(Screen.Home.route, inclusive = false)
+                    },
+                    viewModel = scanViewModel
+                )
+            }
         }
     }
 }

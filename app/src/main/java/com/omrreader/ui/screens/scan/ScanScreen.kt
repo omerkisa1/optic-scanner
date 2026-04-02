@@ -64,7 +64,6 @@ fun ScanScreen(
         when (val state = scanState) {
             is ScanState.ReviewReady -> {
                 onScanSuccess()
-                viewModel.consumeReviewNavigation()
             }
 
             is ScanState.Error -> {
