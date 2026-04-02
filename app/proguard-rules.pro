@@ -35,3 +35,11 @@
 -keep class com.google.gson.** { *; }
 -keepattributes Signature
 -keepattributes *Annotation*
+
+# R8 missing class suppressions
+-dontwarn com.microsoft.schemas.office.visio.x2012.main.ConnectsType
+-dontwarn java.awt.Shape
+-dontwarn org.etsi.uri.x01903.v13.SignaturePolicyIdType
+-dontwarn org.etsi.uri.x01903.v13.SignedDataObjectPropertiesType
+-dontwarn org.etsi.uri.x01903.v13.SignerRoleType
+-dontwarn org.slf4j.impl.StaticLoggerBinder
