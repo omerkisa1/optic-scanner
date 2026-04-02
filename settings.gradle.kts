@@ -22,4 +22,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "OMRReader"
 include(":app")
-include(":opencv")
