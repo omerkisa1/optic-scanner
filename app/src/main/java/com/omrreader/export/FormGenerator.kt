@@ -182,7 +182,7 @@ class FormGenerator @Inject constructor(
     ) {
         val fieldRect = RectF(rect)
         canvas.drawRect(fieldRect, borderPaint)
-        val labelY = (fieldRect.top - 6f).coerceAtLeast(14f)
+        val labelY = (fieldRect.top - 12f).coerceAtLeast(18f)
         canvas.drawText(label, fieldRect.left + 6f, labelY, labelPaint)
     }
 

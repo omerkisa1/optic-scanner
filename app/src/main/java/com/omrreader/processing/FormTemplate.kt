@@ -20,12 +20,12 @@ data class FormTemplate(
     val qrRegion: RectF? = null,
     val grids: List<GridRegion> = listOf(
         GridRegion(
-            region = RectF(0.05f, 0.30f, 0.43f, 0.65f),
+            region = RectF(0.05f, 0.27f, 0.43f, 0.58f),
             rows = 10,
             cols = 5
         ),
         GridRegion(
-            region = RectF(0.52f, 0.30f, 0.43f, 0.65f),
+            region = RectF(0.52f, 0.27f, 0.43f, 0.58f),
             rows = 10,
             cols = 5
         )
