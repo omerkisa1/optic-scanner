@@ -12,6 +12,7 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 
 @Singleton
 class PerspectiveCorrector @Inject constructor() {
@@ -40,8 +41,13 @@ class PerspectiveCorrector @Inject constructor() {
         )
 
         val markerPoints = detectMarkerBasedCorners(markerBinary, source.width(), source.height(), template)
-        val sourcePoints = markerPoints ?: detectPageContourCorners(gray)
-            ?: return null
+        val sourcePoints = markerPoints
+            ?: detectPageContourCorners(gray)
+            ?: detectPageContourCorners(markerBinary)
+
+        if (sourcePoints == null) {
+            return resizeFallbackIfLikelyAligned(source, template)
+        }
 
         val destinationTargets = if (markerPoints != null) {
             template.markerCornerTargetsNormalized()
@@ -94,14 +100,14 @@ class PerspectiveCorrector @Inject constructor() {
             val peri = Imgproc.arcLength(contour2f, true)
             val approx = MatOfPoint2f()
             Imgproc.approxPolyDP(contour2f, approx, 0.04 * peri, true)
-            if (approx.total() != 4L) return@mapNotNull null
+            if (approx.total() < 4L || approx.total() > 8L) return@mapNotNull null
 
             val aspectRatio = rect.width.toDouble() / rect.height.toDouble()
             if (aspectRatio < 0.60 || aspectRatio > 1.40) return@mapNotNull null
 
             val bboxArea = (rect.width * rect.height).toDouble().coerceAtLeast(1.0)
             val fillRatio = area / bboxArea
-            if (fillRatio < 0.55) return@mapNotNull null
+            if (fillRatio < 0.35) return@mapNotNull null
 
             MarkerCandidate(
                 rect = rect,
@@ -198,6 +204,29 @@ class PerspectiveCorrector @Inject constructor() {
         val dx = a.x - b.x
         val dy = a.y - b.y
         return dx * dx + dy * dy
+    }
+
+    private fun resizeFallbackIfLikelyAligned(source: Mat, template: FormTemplate): Bitmap? {
+        val sourceRatio = source.width().toDouble() / source.height().coerceAtLeast(1).toDouble()
+        val targetRatio = template.normalizedWidth.toDouble() / template.normalizedHeight.toDouble()
+        if (abs(sourceRatio - targetRatio) > 0.2) {
+            return null
+        }
+
+        val resized = Mat()
+        Imgproc.resize(
+            source,
+            resized,
+            Size(template.normalizedWidth.toDouble(), template.normalizedHeight.toDouble())
+        )
+
+        val output = Bitmap.createBitmap(
+            template.normalizedWidth,
+            template.normalizedHeight,
+            Bitmap.Config.ARGB_8888
+        )
+        Utils.matToBitmap(resized, output)
+        return output
     }
 
     private fun PointF.toCvPoint(): Point = Point(x.toDouble(), y.toDouble())
