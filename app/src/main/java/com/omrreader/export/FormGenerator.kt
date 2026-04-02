@@ -83,19 +83,43 @@ class FormGenerator @Inject constructor(
         canvas.drawColor(Color.WHITE)
 
         val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 28f
+            color = Color.rgb(20, 20, 20)
+            textSize = 30f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
         }
-        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 15f
+        val sectionTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(45, 45, 45)
+            textSize = 14f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
+        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(30, 30, 30)
+            textSize = 14f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val optionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(30, 30, 30)
+            textSize = 13f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
         val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            strokeWidth = 2f
+            color = Color.rgb(35, 35, 35)
+            strokeWidth = 1.7f
+            style = Paint.Style.STROKE
+        }
+        val sectionFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(245, 245, 245)
+            style = Paint.Style.FILL
+        }
+        val fieldFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        val fieldGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(205, 205, 205)
+            strokeWidth = 1f
             style = Paint.Style.STROKE
         }
         val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -103,13 +127,13 @@ class FormGenerator @Inject constructor(
             style = Paint.Style.FILL
         }
         val bubblePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            strokeWidth = 1.4f
+            color = Color.rgb(35, 35, 35)
+            strokeWidth = 1.2f
             style = Paint.Style.STROKE
         }
         val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            strokeWidth = 1.2f
+            color = Color.rgb(70, 70, 70)
+            strokeWidth = 1.0f
             style = Paint.Style.STROKE
         }
         val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -119,12 +143,25 @@ class FormGenerator @Inject constructor(
 
         val safeExamName = examName.ifBlank { "OMR SINAVI" }
         canvas.drawText(safeExamName.take(64), pageWidth / 2f, 42f, titlePaint)
+        canvas.drawLine(80f, 58f, (pageWidth - 80).toFloat(), 58f, borderPaint)
 
         drawMarkers(canvas, template, markerPaint)
 
-        drawField(canvas, template.resolveNameRegion(pageWidth, pageHeight), "Ad Soyad", labelPaint, borderPaint)
-        drawField(canvas, template.resolveNumberRegion(pageWidth, pageHeight), "Ogrenci No", labelPaint, borderPaint)
-        drawField(canvas, template.resolveClassRegion(pageWidth, pageHeight), "Sinif", labelPaint, borderPaint)
+        val nameRect = template.resolveNameRegion(pageWidth, pageHeight)
+        val numberRect = template.resolveNumberRegion(pageWidth, pageHeight)
+        val classRect = template.resolveClassRegion(pageWidth, pageHeight)
+        drawIdentitySection(
+            canvas = canvas,
+            nameRect = nameRect,
+            numberRect = numberRect,
+            classRect = classRect,
+            sectionTitlePaint = sectionTitlePaint,
+            fieldLabelPaint = labelPaint,
+            sectionFillPaint = sectionFillPaint,
+            borderPaint = borderPaint,
+            fieldFillPaint = fieldFillPaint,
+            fieldGuidePaint = fieldGuidePaint
+        )
 
         val effectiveSubjects = subjects
             .ifEmpty { listOf(FormSubjectLayout("DERS 1", 20, 4)) }
@@ -146,6 +183,7 @@ class FormGenerator @Inject constructor(
                 grid = grid,
                 subjectName = subjectName,
                 labelPaint = labelPaint,
+                optionPaint = optionPaint,
                 linePaint = linePaint,
                 bubblePaint = bubblePaint
             )
@@ -153,10 +191,12 @@ class FormGenerator @Inject constructor(
 
         drawQrIfNeeded(canvas, template, pageWidth, pageHeight, qrData, borderPaint, labelPaint)
 
+        val footerY = (template.normalizedHeight - template.markerMargin - template.markerSize - 10).toFloat()
+
         canvas.drawText(
             "Her soruda yalniz bir secenegi koyu sekilde isaretleyin.",
             40f,
-            pageHeight - 24f,
+            footerY,
             footerPaint
         )
     }
@@ -173,17 +213,56 @@ class FormGenerator @Inject constructor(
         canvas.drawRect(margin, bottom, margin + markerSize, bottom + markerSize, markerPaint)
     }
 
+    private fun drawIdentitySection(
+        canvas: Canvas,
+        nameRect: Rect,
+        numberRect: Rect,
+        classRect: Rect,
+        sectionTitlePaint: Paint,
+        fieldLabelPaint: Paint,
+        sectionFillPaint: Paint,
+        borderPaint: Paint,
+        fieldFillPaint: Paint,
+        fieldGuidePaint: Paint
+    ) {
+        val left = minOf(nameRect.left, numberRect.left, classRect.left)
+        val top = minOf(nameRect.top, numberRect.top, classRect.top)
+        val right = maxOf(nameRect.right, numberRect.right, classRect.right)
+        val bottom = maxOf(nameRect.bottom, numberRect.bottom, classRect.bottom)
+
+        val sectionRect = RectF(
+            (left - 12).toFloat(),
+            (top - 18).toFloat(),
+            (right + 12).toFloat(),
+            (bottom + 12).toFloat()
+        )
+        canvas.drawRoundRect(sectionRect, 10f, 10f, sectionFillPaint)
+        canvas.drawRoundRect(sectionRect, 10f, 10f, borderPaint)
+        canvas.drawText("Kimlik Bilgileri", sectionRect.left + 12f, sectionRect.top + 14f, sectionTitlePaint)
+
+        drawField(canvas, nameRect, "Ad Soyad", fieldLabelPaint, borderPaint, fieldFillPaint, fieldGuidePaint)
+        drawField(canvas, numberRect, "Ogrenci No", fieldLabelPaint, borderPaint, fieldFillPaint, fieldGuidePaint)
+        drawField(canvas, classRect, "Sinif", fieldLabelPaint, borderPaint, fieldFillPaint, fieldGuidePaint)
+    }
+
     private fun drawField(
         canvas: Canvas,
         rect: Rect,
         label: String,
         labelPaint: Paint,
-        borderPaint: Paint
+        borderPaint: Paint,
+        fieldFillPaint: Paint,
+        fieldGuidePaint: Paint
     ) {
         val fieldRect = RectF(rect)
-        canvas.drawRect(fieldRect, borderPaint)
-        val labelY = (fieldRect.top - 12f).coerceAtLeast(18f)
-        canvas.drawText(label, fieldRect.left + 6f, labelY, labelPaint)
+        canvas.drawRoundRect(fieldRect, 7f, 7f, fieldFillPaint)
+        canvas.drawRoundRect(fieldRect, 7f, 7f, borderPaint)
+
+        val labelY = fieldRect.top + 18f
+        canvas.drawText(label, fieldRect.left + 10f, labelY, labelPaint)
+
+        val guideY = (fieldRect.top + 24f).coerceAtMost(fieldRect.bottom - 8f)
+        canvas.drawLine(fieldRect.left + 10f, guideY, fieldRect.right - 10f, guideY, fieldGuidePaint)
     }
 
     private fun drawGrid(
@@ -191,6 +270,7 @@ class FormGenerator @Inject constructor(
         grid: ResolvedGridRegion,
         subjectName: String,
         labelPaint: Paint,
+        optionPaint: Paint,
         linePaint: Paint,
         bubblePaint: Paint
     ) {
@@ -212,9 +292,8 @@ class FormGenerator @Inject constructor(
             }
 
             val label = ('A'.code + col).toChar().toString()
-            val textWidth = labelPaint.measureText(label)
-            val cx = x + (grid.cellWidth / 2f) - (textWidth / 2f)
-            canvas.drawText(label, cx, optionLabelY, labelPaint)
+            val cx = x + (grid.cellWidth / 2f)
+            canvas.drawText(label, cx, optionLabelY, optionPaint)
         }
 
         val rowNumberPaint = Paint(labelPaint).apply {
