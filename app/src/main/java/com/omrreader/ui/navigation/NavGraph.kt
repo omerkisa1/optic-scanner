@@ -6,9 +6,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.omrreader.ui.screens.AnswerKeyScreen
-import com.omrreader.ui.screens.CreateExamScreen
 import com.omrreader.ui.screens.ExamDetailScreen
+import com.omrreader.ui.screens.exam.AnswerKeyScreen
+import com.omrreader.ui.screens.exam.CreateExamScreen
 import com.omrreader.ui.screens.home.HomeScreen
 import com.omrreader.ui.screens.scan.ReviewScreen
 import com.omrreader.ui.screens.scan.ScanScreen
