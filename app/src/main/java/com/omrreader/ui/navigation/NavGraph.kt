@@ -7,13 +7,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.omrreader.ui.screens.ExamDetailScreen
 import com.omrreader.ui.screens.exam.AnswerKeyScreen
 import com.omrreader.ui.screens.exam.CreateExamScreen
 import com.omrreader.ui.screens.home.HomeScreen
 import com.omrreader.ui.screens.scan.ReviewScreen
 import com.omrreader.ui.screens.scan.ScanScreen
 import com.omrreader.ui.screens.scan.ScanViewModel
+import com.omrreader.ui.screens.results.ExamDetailScreen
+import com.omrreader.ui.screens.results.ResultDetailScreen
 
 @Composable
 fun RootNavGraph() {
@@ -63,7 +64,8 @@ fun RootNavGraph() {
             ExamDetailScreen(
                 examId = examId,
                 onBack = { navController.popBackStack() },
-                onScan = { eId -> navController.navigate(Screen.Scan.createRoute(eId)) }
+                onScan = { eId -> navController.navigate(Screen.Scan.createRoute(eId)) },
+                onOpenResult = { resultId -> navController.navigate(Screen.ResultDetail.createRoute(resultId)) }
             )
         }
 
@@ -75,11 +77,11 @@ fun RootNavGraph() {
             ScanScreen(
                 examId = examId,
                 onBack = { navController.popBackStack() },
-                onScanSuccess = { navController.navigate(Screen.ReviewScan.route) }
+                onScanSuccess = { navController.navigate(Screen.Review.route) }
             )
         }
 
-        composable(Screen.ReviewScan.route) {
+        composable(Screen.Review.route) {
             val scanEntry = navController.previousBackStackEntry
             if (scanEntry != null) {
                 val scanViewModel: ScanViewModel = hiltViewModel(scanEntry)
@@ -92,6 +94,17 @@ fun RootNavGraph() {
                     viewModel = scanViewModel
                 )
             }
+        }
+
+        composable(
+            route = Screen.ResultDetail.route,
+            arguments = listOf(navArgument("resultId") { type = NavType.LongType })
+        ) { backStackEntry ->
+            val resultId = backStackEntry.arguments?.getLong("resultId") ?: 0L
+            ResultDetailScreen(
+                resultId = resultId,
+                onBack = { navController.popBackStack() }
+            )
         }
     }
 }
