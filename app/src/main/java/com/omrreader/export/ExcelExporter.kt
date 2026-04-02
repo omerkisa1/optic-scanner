@@ -1,11 +1,12 @@
 package com.omrreader.export
 
 import android.content.Context
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.omrreader.domain.model.Exam
 import com.omrreader.domain.model.StudentResult
-import org.apache.poi.xssf.usermodel.XSSFWorkbook
+import org.apache.poi.hssf.usermodel.HSSFWorkbook
 import java.io.File
 import java.io.FileOutputStream
 import javax.inject.Inject
@@ -14,24 +15,26 @@ import javax.inject.Singleton
 @Singleton
 class ExcelExporter @Inject constructor() {
 
+    companion object {
+        private const val TAG = "ExcelExporter"
+    }
+
     fun exportToExcel(context: Context, exam: Exam, results: List<StudentResult>): File? {
         return try {
-            val workbook = XSSFWorkbook()
+            val workbook = HSSFWorkbook()
             val resultSheet = workbook.createSheet("Sonuçlar")
             val analysisSheet = workbook.createSheet("Soru Analizi")
 
             writeResultsSheet(resultSheet, results)
             writeQuestionAnalysisSheet(analysisSheet, exam, results)
 
-            for (i in 0..8) {
-                resultSheet.autoSizeColumn(i)
-                analysisSheet.autoSizeColumn(i)
-            }
+            // autoSizeColumn is not reliable on Android (AWT/font dependencies).
+            applyColumnWidths(resultSheet, analysisSheet)
 
             val dir = File(context.cacheDir, "exports")
             if (!dir.exists()) dir.mkdirs()
             
-            val fileName = "${exam.name.replace(" ", "_").take(30)}_Sonuclar.xlsx"
+            val fileName = "${exam.name.replace(" ", "_").take(30)}_Sonuclar.xls"
             val file = File(dir, fileName)
             
             FileOutputStream(file).use { out ->
@@ -40,9 +43,26 @@ class ExcelExporter @Inject constructor() {
             workbook.close()
             
             file
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Excel export failed", t)
             null
+        }
+    }
+
+    private fun applyColumnWidths(
+        resultSheet: org.apache.poi.ss.usermodel.Sheet,
+        analysisSheet: org.apache.poi.ss.usermodel.Sheet
+    ) {
+        val resultWidths = intArrayOf(1800, 4500, 7000, 3800, 2200, 2200, 2200, 2600)
+        for (i in resultWidths.indices) {
+            resultSheet.setColumnWidth(i, resultWidths[i])
+        }
+
+        analysisSheet.setColumnWidth(0, 2200)
+        analysisSheet.setColumnWidth(1, 3200)
+        analysisSheet.setColumnWidth(2, 2600)
+        for (i in 3..10) {
+            analysisSheet.setColumnWidth(i, 2200)
         }
     }
 

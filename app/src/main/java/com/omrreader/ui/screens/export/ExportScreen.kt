@@ -90,7 +90,7 @@ fun ExportScreen(
         ) {
             Button(
                 onClick = {
-                    pendingMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    pendingMimeType = "application/vnd.ms-excel"
                     viewModel.exportExcel(examId, context)
                 },
                 modifier = Modifier.fillMaxWidth()
