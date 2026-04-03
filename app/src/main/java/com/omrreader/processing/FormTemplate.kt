@@ -5,10 +5,16 @@ import android.graphics.Rect
 import android.graphics.RectF
 import kotlin.math.roundToInt
 
+object FormConstants {
+    const val PAGE_WIDTH = 1200
+    const val PAGE_HEIGHT = 1700
+    const val BUBBLE_RADIUS = 14
+}
+
 data class FormTemplate(
     // Perspective warp output size (A4 ratio)
-    val normalizedWidth: Int = 1000,
-    val normalizedHeight: Int = 1414,
+    val normalizedWidth: Int = FormConstants.PAGE_WIDTH,
+    val normalizedHeight: Int = FormConstants.PAGE_HEIGHT,
     // Four corner black markers
     val markerSize: Int = 60,
     val markerMargin: Int = 20,

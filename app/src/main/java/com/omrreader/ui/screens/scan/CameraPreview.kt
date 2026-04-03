@@ -37,7 +37,6 @@ import kotlin.math.roundToInt
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 
 sealed class MarkerGuideState {
     object NotFound : MarkerGuideState()
@@ -55,7 +54,6 @@ fun CameraPreview(
     onImageCaptured: (Bitmap) -> Unit,
     onMarkerStateChanged: (MarkerGuideState) -> Unit = {},
     onError: (String) -> Unit,
-    autoCaptureOnReady: Boolean = true,
     captureEnabled: Boolean = true,
     modifier: Modifier = Modifier
 ) {
@@ -69,7 +67,6 @@ fun CameraPreview(
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
     val cameraExecutor: ExecutorService = remember { Executors.newSingleThreadExecutor() }
     val captureInFlight = remember { AtomicBoolean(false) }
-    val readyFrameStreak = remember { AtomicInteger(0) }
 
     val imageCapture = remember {
         ImageCapture.Builder()
@@ -124,7 +121,6 @@ fun CameraPreview(
         imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
             try {
                 if (!captureEnabled) {
-                    readyFrameStreak.set(0)
                     previewView.post { onMarkerStateChanged(MarkerGuideState.NotFound) }
                     return@setAnalyzer
                 }
@@ -134,24 +130,12 @@ fun CameraPreview(
                 val markerState = detectMarkerState(normalized)
                 previewView.post {
                     onMarkerStateChanged(markerState)
-                    if (
-                        autoCaptureOnReady &&
-                        markerState is MarkerGuideState.Ready &&
-                        readyFrameStreak.incrementAndGet() >= 5 &&
-                        !captureInFlight.get()
-                    ) {
-                        readyFrameStreak.set(0)
-                        captureAction()
-                    } else if (markerState !is MarkerGuideState.Ready) {
-                        readyFrameStreak.set(0)
-                    }
                 }
 
                 if (!normalized.isRecycled) {
                     normalized.recycle()
                 }
             } catch (_: Throwable) {
-                readyFrameStreak.set(0)
                 previewView.post { onMarkerStateChanged(MarkerGuideState.NotFound) }
             } finally {
                 imageProxy.close()

@@ -113,7 +113,6 @@ fun ScanScreen(
                             snackbarHostState.showSnackbar(message)
                         }
                     },
-                    autoCaptureOnReady = true,
                     captureEnabled = scanState !is ScanState.Processing,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -223,7 +222,7 @@ private fun MarkerGuideOverlay(
 
             is MarkerGuideState.Partial -> {
                 drawRect(
-                    color = Color(0xFFF9A825),
+                    color = Color(0xFFD32F2F),
                     topLeft = Offset(8f, 8f),
                     size = Size(size.width - 16f, size.height - 16f),
                     style = Stroke(width = 5f)
@@ -233,7 +232,7 @@ private fun MarkerGuideOverlay(
                     val cx = marker.x * size.width
                     val cy = marker.y * size.height
                     drawRect(
-                        color = Color(0xFFF9A825),
+                        color = Color(0xFFD32F2F),
                         topLeft = Offset(cx - 22f, cy - 22f),
                         size = Size(44f, 44f),
                         style = Stroke(width = 3f)
@@ -259,9 +258,9 @@ private fun MarkerGuideHint(
     modifier: Modifier = Modifier
 ) {
     val (text, color) = when (markerState) {
-        is MarkerGuideState.Ready -> "Hazır - Çek" to Color(0xFF2E7D32)
-        is MarkerGuideState.Partial -> "Kağıdı düzelt..." to Color(0xFFF9A825)
-        MarkerGuideState.NotFound -> "Kağıt algılanamıyor" to Color(0xFFD32F2F)
+        is MarkerGuideState.Ready -> "Hazır" to Color(0xFF2E7D32)
+        is MarkerGuideState.Partial -> "Kağıdı hizalayın" to Color(0xFFD32F2F)
+        MarkerGuideState.NotFound -> "Kağıdı hizalayın" to Color(0xFFD32F2F)
     }
 
     Box(
