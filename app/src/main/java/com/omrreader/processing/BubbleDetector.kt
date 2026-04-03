@@ -1,7 +1,9 @@
 package com.omrreader.processing
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.omrreader.domain.model.BubbleState
 import com.omrreader.domain.model.QuestionResult
 import org.opencv.android.Utils
@@ -15,11 +17,15 @@ import org.opencv.imgproc.Imgproc
 import javax.inject.Inject
 import javax.inject.Singleton
 import java.util.Locale
+import java.io.File
+import java.io.FileOutputStream
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 @Singleton
-class BubbleDetector @Inject constructor() {
+class BubbleDetector @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
     companion object {
         private const val TAG = "OMR"
         private const val EMPTY_MAX = 0.22
@@ -31,19 +37,47 @@ class BubbleDetector @Inject constructor() {
     }
 
     fun detect(bitmap: Bitmap, grids: List<ResolvedGridRegion>): List<QuestionResult> {
-        if (grids.isEmpty()) return emptyList()
+        return detectWithDebug(bitmap, FormTemplate.DEFAULT, grids).results
+    }
+
+    fun detectWithDebug(
+        bitmap: Bitmap,
+        template: FormTemplate,
+        grids: List<ResolvedGridRegion>
+    ): BubbleDetectionOutput {
+        if (grids.isEmpty()) {
+            return BubbleDetectionOutput(emptyList(), null)
+        }
 
         val source = Mat()
         Utils.bitmapToMat(bitmap, source)
         val binary = preprocessPage(source)
+        val debugMat = source.clone()
 
         val results = mutableListOf<QuestionResult>()
+        val debugInfos = mutableListOf<QuestionDebugInfo>()
         var globalQuestionNumber = 1
+
+        Log.d(TAG, "=== DEBUG INFO ===")
+        Log.d(TAG, "Normalized size: ${source.cols()}x${source.rows()}")
 
         for ((gridIndex, grid) in grids.withIndex()) {
             if (grid.rows <= 0 || grid.cols <= 0) continue
 
+            Log.d(
+                TAG,
+                "Grid region: left=${grid.region.left}, top=${grid.region.top}, right=${grid.region.right}, bottom=${grid.region.bottom}"
+            )
+
             val positions = calculateBubblePositions(grid)
+            positions.firstOrNull()?.let { first ->
+                Log.d(TAG, "First bubble (Q${globalQuestionNumber}-A): x=${first.centerX}, y=${first.centerY}")
+            }
+            positions.lastOrNull()?.let { last ->
+                val lastOption = ('A'.code + last.col).toChar()
+                Log.d(TAG, "Last bubble (Q${globalQuestionNumber + grid.rows - 1}-$lastOption): x=${last.centerX}, y=${last.centerY}")
+            }
+
             val ratioMatrix = Array(grid.rows) { DoubleArray(grid.cols) }
 
             for (position in positions) {
@@ -55,22 +89,45 @@ class BubbleDetector @Inject constructor() {
                 val decision = determineAnswer(globalQuestionNumber, ratios)
                 results.add(decision.questionResult)
 
+                val rowPositions = positions
+                    .filter { it.row == row }
+                    .sortedBy { it.col }
+                debugInfos += QuestionDebugInfo(
+                    questionNumber = globalQuestionNumber,
+                    status = decision.status,
+                    ratios = ratios,
+                    positions = rowPositions
+                )
+
                 val ratioStr = ratios.mapIndexed { index, ratio ->
                     "${('A'.code + index).toChar()}=${String.format(Locale.US, "%.2f", ratio)}"
                 }.joinToString(" | ")
 
+                val maxFill = ratios.maxOrNull() ?: 0.0
+                val maxIndex = ratios.indexOf(maxFill).coerceAtLeast(0)
+                val maxOption = ('A'.code + maxIndex).toChar()
+
                 Log.d(
                     TAG,
-                    "Q$globalQuestionNumber grid=$gridIndex $ratioStr -> ${decision.status}"
+                    "Q$globalQuestionNumber grid=$gridIndex: $ratioStr -> max=${String.format(Locale.US, "%.3f", maxFill)} at $maxOption status=${decision.status}"
                 )
 
                 globalQuestionNumber++
             }
         }
 
+        drawDebugOverlay(debugMat, template, debugInfos)
+
+        val debugPath = saveDebugImage(debugMat)
+
         binary.release()
         source.release()
-        return results
+        debugMat.release()
+
+        return BubbleDetectionOutput(
+            results = results,
+            debugImagePath = debugPath
+        )
     }
 
     private fun preprocessPage(input: Mat): Mat {
@@ -272,6 +329,105 @@ class BubbleDetector @Inject constructor() {
         )
     }
 
+    private fun drawDebugOverlay(
+        debugMat: Mat,
+        template: FormTemplate,
+        questions: List<QuestionDebugInfo>
+    ) {
+        for (question in questions) {
+            val color = statusColor(question.status)
+
+            question.positions.forEach { pos ->
+                val center = Point(pos.centerX.toDouble(), pos.centerY.toDouble())
+                Imgproc.circle(debugMat, center, pos.radius, color, 2)
+
+                val ratio = question.ratios.getOrElse(pos.col) { 0.0 }
+                Imgproc.putText(
+                    debugMat,
+                    String.format(Locale.US, "%.2f", ratio),
+                    Point(center.x - 14.0, center.y + pos.radius + 12.0),
+                    Imgproc.FONT_HERSHEY_SIMPLEX,
+                    0.30,
+                    color,
+                    1
+                )
+            }
+
+            question.positions.minByOrNull { it.col }?.let { first ->
+                Imgproc.putText(
+                    debugMat,
+                    "Q${question.questionNumber}",
+                    Point((first.centerX - 40).toDouble(), (first.centerY + 5).toDouble()),
+                    Imgproc.FONT_HERSHEY_SIMPLEX,
+                    0.40,
+                    Scalar(255.0, 255.0, 0.0),
+                    1
+                )
+            }
+        }
+
+        drawOcrBox(debugMat, template.resolveNameRegion(debugMat.cols(), debugMat.rows()), "NAME")
+        drawOcrBox(debugMat, template.resolveNumberRegion(debugMat.cols(), debugMat.rows()), "NUMBER")
+        drawOcrBox(debugMat, template.resolveClassRegion(debugMat.cols(), debugMat.rows()), "CLASS")
+    }
+
+    private fun drawOcrBox(debugMat: Mat, rect: android.graphics.Rect, label: String) {
+        Imgproc.rectangle(
+            debugMat,
+            Point(rect.left.toDouble(), rect.top.toDouble()),
+            Point(rect.right.toDouble(), rect.bottom.toDouble()),
+            Scalar(255.0, 0.0, 0.0),
+            2
+        )
+
+        val textY = (rect.top - 6).coerceAtLeast(14)
+        Imgproc.putText(
+            debugMat,
+            label,
+            Point(rect.left.toDouble(), textY.toDouble()),
+            Imgproc.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            Scalar(255.0, 0.0, 0.0),
+            1
+        )
+    }
+
+    private fun statusColor(status: String): Scalar {
+        return when (status) {
+            "VALID", "HEAVY_MARK" -> Scalar(0.0, 255.0, 0.0)
+            "EMPTY" -> Scalar(0.0, 0.0, 255.0)
+            else -> Scalar(0.0, 255.0, 255.0)
+        }
+    }
+
+    private fun saveDebugImage(debugMat: Mat): String? {
+        return try {
+            val debugBitmap = Bitmap.createBitmap(debugMat.cols(), debugMat.rows(), Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(debugMat, debugBitmap)
+
+            val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES)
+                ?: context.filesDir
+            if (!dir.exists()) {
+                dir.mkdirs()
+            }
+
+            val file = File(dir, "omr_debug_${System.currentTimeMillis()}.png")
+            FileOutputStream(file).use { out ->
+                debugBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+
+            if (!debugBitmap.isRecycled) {
+                debugBitmap.recycle()
+            }
+
+            Log.d(TAG, "Debug image saved: ${file.absolutePath}")
+            file.absolutePath
+        } catch (t: Throwable) {
+            Log.e(TAG, "Debug image save failed", t)
+            null
+        }
+    }
+
     private data class BubblePosition(
         val row: Int,
         val col: Int,
@@ -283,5 +439,17 @@ class BubbleDetector @Inject constructor() {
     private data class DetectionDecision(
         val questionResult: QuestionResult,
         val status: String
+    )
+
+    private data class QuestionDebugInfo(
+        val questionNumber: Int,
+        val status: String,
+        val ratios: List<Double>,
+        val positions: List<BubblePosition>
+    )
+
+    data class BubbleDetectionOutput(
+        val results: List<QuestionResult>,
+        val debugImagePath: String?
     )
 }

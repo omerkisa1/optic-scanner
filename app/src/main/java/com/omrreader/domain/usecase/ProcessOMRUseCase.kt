@@ -1,6 +1,7 @@
 package com.omrreader.domain.usecase
 
 import android.graphics.Bitmap
+import android.util.Log
 import com.google.gson.Gson
 import com.omrreader.domain.model.Exam
 import com.omrreader.domain.model.OMRAnswerKeyResponse
@@ -25,6 +26,10 @@ class ProcessOMRUseCase @Inject constructor(
     private val scoringEngine: ScoringEngine,
     private val gson: Gson
 ) {
+    companion object {
+        private const val TAG = "OMR"
+    }
+
     suspend fun process(
         bitmap: Bitmap,
         expectedExam: Exam? = null,
@@ -38,6 +43,10 @@ class ProcessOMRUseCase @Inject constructor(
             val corrected = normalizePageSize(correctedRaw, template)
             val correctedWidth = corrected.width
             val correctedHeight = corrected.height
+
+            Log.d(TAG, "=== DEBUG INFO ===")
+            Log.d(TAG, "Warped image size: ${correctedRaw.width}x${correctedRaw.height}")
+            Log.d(TAG, "Normalized size: ${correctedWidth}x${correctedHeight}")
 
             val qrAnswerKey = template.resolveQrRegion(correctedWidth, correctedHeight)?.let { qrRegion ->
                 val qrData = qrProcessor.decode(corrected, qrRegion) ?: return@let null
@@ -92,10 +101,9 @@ class ProcessOMRUseCase @Inject constructor(
                 "class"
             )
 
-            val omrResults = bubbleDetector.detect(
-                corrected,
-                template.resolveGrids(correctedWidth, correctedHeight, subjectOverrides)
-            )
+            val resolvedGrids = template.resolveGrids(correctedWidth, correctedHeight, subjectOverrides)
+            val bubbleOutput = bubbleDetector.detectWithDebug(corrected, template, resolvedGrids)
+            val omrResults = bubbleOutput.results
 
             val correctAnswers = mutableListOf<Int>()
             val weights = mutableListOf<Double>()
@@ -150,7 +158,8 @@ class ProcessOMRUseCase @Inject constructor(
                 omrResults = normalizedOmrResults,
                 scoreResult = scoreResult,
                 answerKey = answerKey,
-                correctedImagePath = null
+                correctedImagePath = null,
+                debugImagePath = bubbleOutput.debugImagePath
             )
         } catch (e: Exception) {
             e.printStackTrace()

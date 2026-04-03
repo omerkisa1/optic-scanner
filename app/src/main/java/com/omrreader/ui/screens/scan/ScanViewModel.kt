@@ -168,7 +168,7 @@ class ScanViewModel @Inject constructor(
                 correctCount = finalScore.correctCount,
                 wrongCount = finalScore.wrongCount,
                 emptyCount = finalScore.emptyCount,
-                imagePath = current.correctedImagePath,
+                imagePath = current.debugImagePath ?: current.correctedImagePath,
                 isConfirmed = true
             )
 

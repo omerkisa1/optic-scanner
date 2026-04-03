@@ -1,5 +1,7 @@
 package com.omrreader.ui.screens.scan
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,8 +40,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
 
 private data class OverrideDialogState(
@@ -62,6 +67,7 @@ fun ReviewScreen(
 
     var overrideDialog by remember { mutableStateOf<OverrideDialogState?>(null) }
     var isSaving by remember { mutableStateOf(false) }
+    var showDebugDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.consumeReviewNavigation()
@@ -148,6 +154,17 @@ fun ReviewScreen(
                 confidence = classConfidence,
                 onValueChange = { className = it }
             )
+
+            if (!result.debugImagePath.isNullOrBlank()) {
+                Button(
+                    onClick = { showDebugDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                ) {
+                    Text("Debug Görüntüsü Göster")
+                }
+            }
 
             Text(
                 text = "Cevaplar",
@@ -326,6 +343,48 @@ fun ReviewScreen(
                 }
             }
         )
+    }
+
+    if (showDebugDialog) {
+        val debugBitmap = remember(result.debugImagePath) {
+            result.debugImagePath
+                ?.takeIf { it.isNotBlank() }
+                ?.let { path -> BitmapFactory.decodeFile(path) }
+        }
+
+        Dialog(onDismissRequest = { showDebugDialog = false }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.95f))
+            ) {
+                if (debugBitmap != null) {
+                    Image(
+                        bitmap = debugBitmap.asImageBitmap(),
+                        contentDescription = "OMR debug görüntüsü",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(12.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    Text(
+                        text = "Debug görüntüsü yüklenemedi.",
+                        color = Color.White,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+
+                TextButton(
+                    onClick = { showDebugDialog = false },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                ) {
+                    Text("Kapat")
+                }
+            }
+        }
     }
 }
 
