@@ -242,7 +242,7 @@ class ExcelExporter @Inject constructor() {
 
                 when {
                     marked == null -> {
-                        cell.setCellValue("○")
+                        cell.setCellValue("-")
                         cell.cellStyle = emptyStyle
                     }
 
@@ -252,12 +252,12 @@ class ExcelExporter @Inject constructor() {
                     }
 
                     marked == correct -> {
-                        cell.setCellValue("✓")
+                        cell.setCellValue(answerLabel(marked))
                         cell.cellStyle = correctStyle
                     }
 
                     else -> {
-                        cell.setCellValue("✗")
+                        cell.setCellValue(answerLabel(marked))
                         cell.cellStyle = wrongStyle
                     }
                 }

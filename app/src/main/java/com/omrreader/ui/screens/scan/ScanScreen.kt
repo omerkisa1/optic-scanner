@@ -35,8 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -188,65 +186,51 @@ private fun MarkerGuideOverlay(
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
-        when (markerState) {
-            is MarkerGuideState.Ready -> {
-                val points = markerState.markers.map { marker ->
-                    Offset(marker.x * size.width, marker.y * size.height)
-                }
-                if (points.size == 4) {
-                    val path = Path().apply {
-                        moveTo(points[0].x, points[0].y)
-                        lineTo(points[1].x, points[1].y)
-                        lineTo(points[2].x, points[2].y)
-                        lineTo(points[3].x, points[3].y)
-                        close()
-                    }
-                    drawPath(
-                        path = path,
-                        color = Color(0xFF2E7D32),
-                        style = Stroke(width = 6f)
-                    )
-                }
+        val padding = 40f
+        val bracketLen = 50f
+        val strokeW = 3f
 
-                markerState.markers.forEach { marker ->
-                    val cx = marker.x * size.width
-                    val cy = marker.y * size.height
-                    drawRect(
-                        color = Color(0xFF2E7D32),
-                        topLeft = Offset(cx - 24f, cy - 24f),
-                        size = Size(48f, 48f),
-                        style = Stroke(width = 4f)
-                    )
-                }
-            }
+        val left = padding
+        val top = padding * 2
+        val right = size.width - padding
+        val bottom = size.height - padding * 3
 
-            is MarkerGuideState.Partial -> {
-                drawRect(
-                    color = Color(0xFFD32F2F),
-                    topLeft = Offset(8f, 8f),
-                    size = Size(size.width - 16f, size.height - 16f),
-                    style = Stroke(width = 5f)
-                )
+        val color = when (markerState) {
+            is MarkerGuideState.Ready -> Color(0xFF4CAF50)
+            is MarkerGuideState.Partial -> Color(0xFFFFC107)
+            MarkerGuideState.NotFound -> Color.White.copy(alpha = 0.5f)
+        }
 
-                markerState.markers.forEach { marker ->
-                    val cx = marker.x * size.width
-                    val cy = marker.y * size.height
-                    drawRect(
-                        color = Color(0xFFD32F2F),
-                        topLeft = Offset(cx - 22f, cy - 22f),
-                        size = Size(44f, 44f),
-                        style = Stroke(width = 3f)
-                    )
-                }
-            }
+        drawRect(Color.Black.copy(alpha = 0.3f),
+            topLeft = Offset.Zero,
+            size = Size(size.width, top))
+        drawRect(Color.Black.copy(alpha = 0.3f),
+            topLeft = Offset(0f, bottom),
+            size = Size(size.width, size.height - bottom))
+        drawRect(Color.Black.copy(alpha = 0.3f),
+            topLeft = Offset(0f, top),
+            size = Size(left, bottom - top))
+        drawRect(Color.Black.copy(alpha = 0.3f),
+            topLeft = Offset(right, top),
+            size = Size(size.width - right, bottom - top))
 
-            MarkerGuideState.NotFound -> {
-                drawRect(
-                    color = Color(0xFFD32F2F),
-                    topLeft = Offset(8f, 8f),
-                    size = Size(size.width - 16f, size.height - 16f),
-                    style = Stroke(width = 5f)
-                )
+        drawLine(color, Offset(left, top), Offset(left + bracketLen, top), strokeWidth = strokeW)
+        drawLine(color, Offset(left, top), Offset(left, top + bracketLen), strokeWidth = strokeW)
+
+        drawLine(color, Offset(right, top), Offset(right - bracketLen, top), strokeWidth = strokeW)
+        drawLine(color, Offset(right, top), Offset(right, top + bracketLen), strokeWidth = strokeW)
+
+        drawLine(color, Offset(left, bottom), Offset(left + bracketLen, bottom), strokeWidth = strokeW)
+        drawLine(color, Offset(left, bottom), Offset(left, bottom - bracketLen), strokeWidth = strokeW)
+
+        drawLine(color, Offset(right, bottom), Offset(right - bracketLen, bottom), strokeWidth = strokeW)
+        drawLine(color, Offset(right, bottom), Offset(right, bottom - bracketLen), strokeWidth = strokeW)
+
+        if (markerState is MarkerGuideState.Ready) {
+            markerState.markers.forEach { marker ->
+                val cx = marker.x * size.width
+                val cy = marker.y * size.height
+                drawCircle(Color(0xFF4CAF50), radius = 8f, center = Offset(cx, cy))
             }
         }
     }
@@ -258,9 +242,9 @@ private fun MarkerGuideHint(
     modifier: Modifier = Modifier
 ) {
     val (text, color) = when (markerState) {
-        is MarkerGuideState.Ready -> "Hazır" to Color(0xFF2E7D32)
-        is MarkerGuideState.Partial -> "Kağıdı hizalayın" to Color(0xFFD32F2F)
-        MarkerGuideState.NotFound -> "Kağıdı hizalayın" to Color(0xFFD32F2F)
+        is MarkerGuideState.Ready -> "Kağıt algılandı" to Color(0xFF4CAF50)
+        is MarkerGuideState.Partial -> "Kağıdı çerçeveye hizalayın" to Color(0xFFFFC107)
+        MarkerGuideState.NotFound -> "Optik formu çerçeveye yerleştirin" to Color.White
     }
 
     Box(

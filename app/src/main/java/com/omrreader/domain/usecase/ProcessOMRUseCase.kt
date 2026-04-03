@@ -232,6 +232,28 @@ class ProcessOMRUseCase @Inject constructor(
         omrResults: List<QuestionResult>,
         correctAnswers: List<Int>
     ): String? {
+        return createPaperEvaluationOverlayWithInfo(bitmap, grids, omrResults, correctAnswers, null, null)
+    }
+
+    fun createGradedOverlay(
+        bitmap: Bitmap,
+        grids: List<ResolvedGridRegion>,
+        omrResults: List<QuestionResult>,
+        correctAnswers: List<Int>,
+        studentName: String?,
+        scoreInfo: String?
+    ): String? {
+        return createPaperEvaluationOverlayWithInfo(bitmap, grids, omrResults, correctAnswers, studentName, scoreInfo)
+    }
+
+    private fun createPaperEvaluationOverlayWithInfo(
+        bitmap: Bitmap,
+        grids: List<ResolvedGridRegion>,
+        omrResults: List<QuestionResult>,
+        correctAnswers: List<Int>,
+        studentName: String?,
+        scoreInfo: String?
+    ): String? {
         return try {
             val mutable = bitmap.copy(Bitmap.Config.ARGB_8888, true)
             val canvas = Canvas(mutable)
@@ -255,6 +277,29 @@ class ProcessOMRUseCase @Inject constructor(
                 color = Color.WHITE
                 textSize = 20f
                 style = Paint.Style.FILL
+            }
+
+            if (!studentName.isNullOrBlank() || !scoreInfo.isNullOrBlank()) {
+                val barHeight = 50f
+                val barPaint = Paint().apply {
+                    color = Color.argb(220, 0, 0, 0)
+                    style = Paint.Style.FILL
+                }
+                canvas.drawRect(0f, 0f, mutable.width.toFloat(), barHeight, barPaint)
+
+                val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    textSize = 22f
+                    style = Paint.Style.FILL
+                }
+                val displayText = buildString {
+                    if (!studentName.isNullOrBlank()) append(studentName)
+                    if (!scoreInfo.isNullOrBlank()) {
+                        if (isNotEmpty()) append(" | ")
+                        append(scoreInfo)
+                    }
+                }
+                canvas.drawText(displayText, 10f, 35f, textPaint)
             }
 
             var questionIndex = 0

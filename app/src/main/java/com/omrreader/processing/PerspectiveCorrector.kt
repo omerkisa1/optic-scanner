@@ -43,6 +43,7 @@ class PerspectiveCorrector @Inject constructor() {
         )
 
         val markerPoints = detectMarkerBasedCorners(markerBinary, source.width(), source.height(), template)
+            ?: detectMarkersMultiThreshold(gray, source.width(), source.height(), template)
         val sourcePoints = markerPoints
             ?: detectPageContourCorners(gray)
             ?: detectPageContourCorners(markerBinary)
@@ -172,6 +173,95 @@ class PerspectiveCorrector @Inject constructor() {
             Point((br.rect.x + br.rect.width).toDouble(), (br.rect.y + br.rect.height).toDouble()),
             Point(bl.rect.x.toDouble(), (bl.rect.y + bl.rect.height).toDouble())
         )
+    }
+
+    private fun detectMarkersMultiThreshold(
+        gray: Mat,
+        imageWidth: Int,
+        imageHeight: Int,
+        template: FormTemplate
+    ): Array<Point>? {
+        val thresholdGenerators: List<(Mat) -> Mat> = listOf(
+            { src ->
+                val bin = Mat()
+                Imgproc.threshold(src, bin, 0.0, 255.0,
+                    Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU)
+                bin
+            },
+            { src ->
+                val bin = Mat()
+                Imgproc.adaptiveThreshold(src, bin, 255.0,
+                    Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                    Imgproc.THRESH_BINARY_INV, 21, 5.0)
+                bin
+            },
+            { src ->
+                val bin = Mat()
+                Imgproc.threshold(src, bin, 60.0, 255.0, Imgproc.THRESH_BINARY_INV)
+                bin
+            }
+        )
+
+        for (thresholdFn in thresholdGenerators) {
+            val binary = thresholdFn(gray)
+            val result = findMarkersInBinaryTolerant(binary, imageWidth, imageHeight)
+            binary.release()
+            if (result != null) return result
+        }
+        return null
+    }
+
+    private fun findMarkersInBinaryTolerant(
+        binary: Mat,
+        imageWidth: Int,
+        imageHeight: Int
+    ): Array<Point>? {
+        val contours = mutableListOf<MatOfPoint>()
+        Imgproc.findContours(binary.clone(), contours, Mat(),
+            Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+
+        val imageArea = imageWidth.toDouble() * imageHeight.toDouble()
+        val minArea = imageArea * 0.001
+        val maxArea = imageArea * 0.03
+
+        val candidates = contours.mapNotNull { contour ->
+            val area = Imgproc.contourArea(contour)
+            if (area < minArea || area > maxArea) return@mapNotNull null
+
+            val rect = Imgproc.boundingRect(contour)
+            if (rect.width <= 0 || rect.height <= 0) return@mapNotNull null
+            val aspect = rect.width.toDouble() / rect.height.toDouble()
+            if (aspect < 0.6 || aspect > 1.6) return@mapNotNull null
+
+            val solidity = area / (rect.width * rect.height).toDouble().coerceAtLeast(1.0)
+            if (solidity < 0.7) return@mapNotNull null
+
+            Point(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
+        }
+
+        if (candidates.size < 4) return null
+
+        val corners = listOf(
+            Point(0.0, 0.0),
+            Point(imageWidth.toDouble(), 0.0),
+            Point(0.0, imageHeight.toDouble()),
+            Point(imageWidth.toDouble(), imageHeight.toDouble())
+        )
+
+        val selected = corners.map { corner ->
+            candidates.minByOrNull { candidate ->
+                hypot(candidate.x - corner.x, candidate.y - corner.y)
+            }!!
+        }
+
+        if (selected.distinct().size < 4) return null
+
+        val tl = selected[0]
+        val tr = selected[1]
+        val bl = selected[2]
+        val br = selected[3]
+
+        return arrayOf(tl, tr, br, bl)
     }
 
     private fun detectPageContourCorners(gray: Mat): Array<Point>? {

@@ -7,13 +7,22 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -29,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 
 data class AnswerDetailRow(
@@ -67,93 +77,90 @@ fun ResultDetailScreen(
             )
         }
     ) { paddingValues ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(
-                text = result?.studentName ?: "İsimsiz",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-            Text("Numara: ${result?.studentNumber ?: "-"}")
-            Text("Sınıf: ${result?.className ?: "-"}")
-            Text(
-                text = "Puan: ${result?.totalScore ?: 0.0}",
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 6.dp)
-            )
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = result?.studentName ?: "İsimsiz",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text("Numara: ${result?.studentNumber ?: "-"}")
+                        Text("Sınıf: ${result?.className ?: "-"}")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Puan: ${"%.1f".format(result?.totalScore ?: 0.0)}",
+                            fontSize = 24.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Doğru: ${result?.correctCount ?: 0} | Yanlış: ${result?.wrongCount ?: 0} | Boş: ${result?.emptyCount ?: 0}"
+                        )
+                    }
+                }
+            }
 
-            Text(
-                text = "Soru Detayı",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .padding(vertical = 8.dp, horizontal = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            item {
                 Text(
-                    text = "Soru",
-                    modifier = Modifier.weight(1f),
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "Öğrenci",
-                    modifier = Modifier.weight(1.2f),
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "Doğru",
-                    modifier = Modifier.weight(1.2f),
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "Durum",
-                    modifier = Modifier.weight(0.8f),
-                    fontWeight = FontWeight.SemiBold
+                    text = "Soru Detayları",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(vertical = 12.dp)
                 )
             }
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(rows) { row ->
-                    val (symbol, symbolColor) = statusIcon(row.marked, row.correct)
-                    Card {
-                        Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 10.dp, horizontal = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = row.questionNumber.toString(),
-                                modifier = Modifier.weight(1f),
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = answerLabel(row.marked),
-                                modifier = Modifier.weight(1.2f)
-                            )
-                            Text(
-                                text = answerLabel(row.correct),
-                                modifier = Modifier.weight(1.2f)
-                            )
-                            Box(modifier = Modifier.weight(0.8f)) {
-                                Text(
-                                    text = symbol,
-                                    color = symbolColor,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
+            items(rows) { row ->
+                val isCorrect = row.marked != null && row.marked == row.correct
+                val isEmpty = row.marked == null
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            when {
+                                isEmpty -> Color.Gray.copy(alpha = 0.1f)
+                                isCorrect -> Color(0xFF4CAF50).copy(alpha = 0.1f)
+                                else -> Color(0xFFF44336).copy(alpha = 0.1f)
+                            },
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Soru ${row.questionNumber}",
+                        modifier = Modifier.width(70.dp),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text("Cevap: ${answerLabel(row.marked)}")
+                    Text("Doğru: ${answerLabel(row.correct)}")
+                    if (isEmpty) {
+                        Text(
+                            text = "—",
+                            color = Color.Gray,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        Icon(
+                            imageVector = if (isCorrect) Icons.Default.Check else Icons.Default.Close,
+                            contentDescription = null,
+                            tint = if (isCorrect) Color(0xFF4CAF50) else Color(0xFFF44336)
+                        )
                     }
                 }
             }

@@ -251,8 +251,8 @@ class PdfExporter @Inject constructor() {
         val cell = Cell().setTextAlignment(TextAlignment.CENTER)
         when {
             marked == null -> {
-                cell.add(Paragraph("○"))
-                cell.setBackgroundColor(DeviceRgb(255, 243, 205))
+                cell.add(Paragraph("-"))
+                cell.setBackgroundColor(DeviceRgb(230, 230, 230))
             }
 
             correct == null -> {
@@ -261,12 +261,12 @@ class PdfExporter @Inject constructor() {
             }
 
             marked == correct -> {
-                cell.add(Paragraph("✓"))
+                cell.add(Paragraph(answerLabel(marked)))
                 cell.setBackgroundColor(DeviceRgb(212, 237, 218))
             }
 
             else -> {
-                cell.add(Paragraph("✗"))
+                cell.add(Paragraph(answerLabel(marked)))
                 cell.setBackgroundColor(DeviceRgb(248, 215, 218))
             }
         }

@@ -287,7 +287,7 @@ class OCRProcessor @Inject constructor() {
                     .trim()
 
                 text = text.split(" ")
-                    .filter { it.isNotBlank() }
+                    .filter { it.isNotBlank() && it.length > 1 }
                     .joinToString(" ") { word ->
                         capitalizeTurkishWord(word)
                     }
@@ -322,14 +322,23 @@ class OCRProcessor @Inject constructor() {
         val commonLabels = listOf(
             "Kimlik Bilgileri",
             "Ad Soyad",
+            "Ad soyad",
+            "Adsoyad",
+            "ad soyad",
             "Ogrenci No",
             "Öğrenci No",
-            "Sinif",
-            "Sınıf",
             "Ogrenci",
             "Öğrenci",
+            "Sinif",
+            "Sınıf",
+            "sinif",
+            "sınıf",
             "Kimlik",
-            "Bilgileri"
+            "Bilgileri",
+            "CLASS",
+            "NAME",
+            "NUMBER",
+            "NO"
         )
 
         val scopedLabels = if (fieldType == "name") {
@@ -340,12 +349,12 @@ class OCRProcessor @Inject constructor() {
 
         for (label in scopedLabels.sortedByDescending { it.length }) {
             val escaped = Regex.escape(label)
-            cleaned = cleaned.replace(Regex("\\b$escaped\\b", RegexOption.IGNORE_CASE), " ")
+            cleaned = cleaned.replace(Regex(escaped, RegexOption.IGNORE_CASE), " ")
         }
 
         return cleaned
             .trim()
-            .trim('.', ':', '-', '_', ' ')
+            .trimStart('.', ':', '-', '_', ' ')
             .replace(Regex("\\s{2,}"), " ")
             .trim()
     }

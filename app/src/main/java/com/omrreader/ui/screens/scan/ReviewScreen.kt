@@ -1,5 +1,7 @@
 package com.omrreader.ui.screens.scan
 
+import android.content.Context
+import android.content.Intent
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -22,6 +24,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -42,11 +45,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
+import java.io.File
 
 private data class OverrideDialogState(
     val questionIndex: Int,
@@ -386,6 +392,7 @@ fun ReviewScreen(
                 ?.takeIf { it.isNotBlank() }
                 ?.let { path -> BitmapFactory.decodeFile(path) }
         }
+        val shareContext = LocalContext.current
 
         Dialog(onDismissRequest = { showPaperDialog = false }) {
             Box(
@@ -410,13 +417,22 @@ fun ReviewScreen(
                     )
                 }
 
-                TextButton(
-                    onClick = { showPaperDialog = false },
+                Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp)
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Kapat")
+                    if (result.correctedImagePath != null) {
+                        TextButton(onClick = {
+                            shareImageFile(shareContext, result.correctedImagePath!!)
+                        }) {
+                            Text("Paylaş")
+                        }
+                    }
+                    TextButton(onClick = { showPaperDialog = false }) {
+                        Text("Kapat")
+                    }
                 }
             }
         }
@@ -578,4 +594,19 @@ private fun EditableFieldWithConfidence(
 private fun answerLabel(answer: Int?): String {
     if (answer == null) return "—"
     return ('A'.code + answer).toChar().toString()
+}
+
+private fun shareImageFile(context: Context, filePath: String) {
+    try {
+        val file = File(filePath)
+        if (!file.exists()) return
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Değerlendirme Görüntüsünü Paylaş"))
+    } catch (_: Exception) {
+    }
 }
