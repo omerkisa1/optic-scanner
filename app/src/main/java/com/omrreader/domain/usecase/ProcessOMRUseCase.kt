@@ -159,7 +159,9 @@ class ProcessOMRUseCase @Inject constructor(
                 scoreResult = scoreResult,
                 answerKey = answerKey,
                 correctedImagePath = null,
-                debugImagePath = bubbleOutput.debugImagePath
+                debugImagePath = bubbleOutput.debugImagePath,
+                thresholdDebugImagePath = bubbleOutput.thresholdDebugImagePath,
+                omrDebugLines = bubbleOutput.questionLogs
             )
         } catch (e: Exception) {
             e.printStackTrace()

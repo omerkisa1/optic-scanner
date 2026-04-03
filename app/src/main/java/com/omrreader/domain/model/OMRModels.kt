@@ -40,7 +40,9 @@ sealed class ProcessResult {
         val scoreResult: ScoreResult,
         val answerKey: OMRAnswerKeyResponse?,
         val correctedImagePath: String? = null,
-        val debugImagePath: String? = null
+        val debugImagePath: String? = null,
+        val thresholdDebugImagePath: String? = null,
+        val omrDebugLines: List<String> = emptyList()
     ) : ProcessResult()
 
     data class Error(val message: String) : ProcessResult()

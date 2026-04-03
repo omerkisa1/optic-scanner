@@ -28,10 +28,10 @@ class BubbleDetector @Inject constructor(
 ) {
     companion object {
         private const val TAG = "OMR"
-        private const val EMPTY_MAX = 0.22
-        private const val MARKED_MIN = 0.25
+        private const val EMPTY_MAX = 0.15
+        private const val MARKED_MIN = 0.18
         private const val HEAVY_MIN = 0.70
-        private const val VALID_RELATIVE_MIN = 2.0
+        private const val VALID_RELATIVE_MIN = 1.8
         private const val LIKELY_RELATIVE_MIN = 1.5
         private const val LIKELY_ABSOLUTE_MIN = 0.30
     }
@@ -46,16 +46,18 @@ class BubbleDetector @Inject constructor(
         grids: List<ResolvedGridRegion>
     ): BubbleDetectionOutput {
         if (grids.isEmpty()) {
-            return BubbleDetectionOutput(emptyList(), null)
+            return BubbleDetectionOutput(emptyList(), null, null, emptyList())
         }
 
         val source = Mat()
         Utils.bitmapToMat(bitmap, source)
         val binary = preprocessPage(source)
         val debugMat = source.clone()
+        val thresholdDebugPath = saveThresholdDebugImage(binary)
 
         val results = mutableListOf<QuestionResult>()
         val debugInfos = mutableListOf<QuestionDebugInfo>()
+        val questionLogLines = mutableListOf<String>()
         var globalQuestionNumber = 1
 
         Log.d(TAG, "=== DEBUG INFO ===")
@@ -101,11 +103,17 @@ class BubbleDetector @Inject constructor(
 
                 val ratioStr = ratios.mapIndexed { index, ratio ->
                     "${('A'.code + index).toChar()}=${String.format(Locale.US, "%.2f", ratio)}"
-                }.joinToString(" | ")
+                }.joinToString(" ")
 
                 val maxFill = ratios.maxOrNull() ?: 0.0
                 val maxIndex = ratios.indexOf(maxFill).coerceAtLeast(0)
                 val maxOption = ('A'.code + maxIndex).toChar()
+                val selectedLabel = decision.questionResult.selectedAnswer
+                    ?.let { ('A'.code + it).toChar().toString() }
+                    ?: "-"
+
+                val uiLine = "Q$globalQuestionNumber: $ratioStr -> ${decision.status}($selectedLabel)"
+                questionLogLines += uiLine
 
                 Log.d(
                     TAG,
@@ -126,7 +134,9 @@ class BubbleDetector @Inject constructor(
 
         return BubbleDetectionOutput(
             results = results,
-            debugImagePath = debugPath
+            debugImagePath = debugPath,
+            thresholdDebugImagePath = thresholdDebugPath,
+            questionLogs = questionLogLines
         )
     }
 
@@ -152,8 +162,8 @@ class BubbleDetector @Inject constructor(
             255.0,
             Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
             Imgproc.THRESH_BINARY_INV,
-            15,
-            4.0
+            21,
+            8.0
         )
 
         gray.release()
@@ -428,6 +438,38 @@ class BubbleDetector @Inject constructor(
         }
     }
 
+    private fun saveThresholdDebugImage(binary: Mat): String? {
+        return try {
+            val rgba = Mat()
+            Imgproc.cvtColor(binary, rgba, Imgproc.COLOR_GRAY2RGBA)
+
+            val debugBitmap = Bitmap.createBitmap(rgba.cols(), rgba.rows(), Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(rgba, debugBitmap)
+
+            val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES)
+                ?: context.filesDir
+            if (!dir.exists()) {
+                dir.mkdirs()
+            }
+
+            val file = File(dir, "omr_threshold_debug_${System.currentTimeMillis()}.png")
+            FileOutputStream(file).use { out ->
+                debugBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+
+            if (!debugBitmap.isRecycled) {
+                debugBitmap.recycle()
+            }
+
+            rgba.release()
+            Log.d(TAG, "Threshold debug saved: ${file.absolutePath}")
+            file.absolutePath
+        } catch (t: Throwable) {
+            Log.e(TAG, "Threshold debug save failed", t)
+            null
+        }
+    }
+
     private data class BubblePosition(
         val row: Int,
         val col: Int,
@@ -450,6 +492,8 @@ class BubbleDetector @Inject constructor(
 
     data class BubbleDetectionOutput(
         val results: List<QuestionResult>,
-        val debugImagePath: String?
+        val debugImagePath: String?,
+        val thresholdDebugImagePath: String?,
+        val questionLogs: List<String>
     )
 }

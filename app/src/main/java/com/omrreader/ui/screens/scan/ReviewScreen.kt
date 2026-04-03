@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -68,6 +70,7 @@ fun ReviewScreen(
     var overrideDialog by remember { mutableStateOf<OverrideDialogState?>(null) }
     var isSaving by remember { mutableStateOf(false) }
     var showDebugDialog by remember { mutableStateOf(false) }
+    var showLogDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.consumeReviewNavigation()
@@ -155,14 +158,33 @@ fun ReviewScreen(
                 onValueChange = { className = it }
             )
 
-            if (!result.debugImagePath.isNullOrBlank()) {
-                Button(
-                    onClick = { showDebugDialog = true },
+            val hasDebugImage = !result.debugImagePath.isNullOrBlank()
+            val hasOmrLogs = result.omrDebugLines.isNotEmpty()
+
+            if (hasDebugImage || hasOmrLogs) {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp)
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Debug Görüntüsü Göster")
+                    if (hasDebugImage) {
+                        Button(
+                            onClick = { showDebugDialog = true },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Debug Görüntüsü Göster")
+                        }
+                    }
+
+                    if (hasOmrLogs) {
+                        Button(
+                            onClick = { showLogDialog = true },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Log Göster")
+                        }
+                    }
                 }
             }
 
@@ -377,6 +399,68 @@ fun ReviewScreen(
 
                 TextButton(
                     onClick = { showDebugDialog = false },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                ) {
+                    Text("Kapat")
+                }
+            }
+        }
+    }
+
+    if (showLogDialog) {
+        Dialog(onDismissRequest = { showLogDialog = false }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.95f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "FillRatio Logları",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    result.thresholdDebugImagePath?.takeIf { it.isNotBlank() }?.let { thresholdPath ->
+                        Text(
+                            text = "Threshold: $thresholdPath",
+                            color = Color(0xFFB3E5FC),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    result.debugImagePath?.takeIf { it.isNotBlank() }?.let { overlayPath ->
+                        Text(
+                            text = "Overlay: $overlayPath",
+                            color = Color(0xFFB3E5FC),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(result.omrDebugLines.ifEmpty { listOf("Log bulunamadı.") }) { line ->
+                            Text(
+                                text = line,
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+
+                TextButton(
+                    onClick = { showLogDialog = false },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp)
