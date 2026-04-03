@@ -13,9 +13,10 @@ data class FormTemplate(
     val markerSize: Int = 60,
     val markerMargin: Int = 20,
     // RectF fields are used as (x, y, width, height) in normalized ratios
-    val nameRegion: RectF = RectF(0.15f, 0.06f, 0.70f, 0.04f),
-    val numberRegion: RectF = RectF(0.15f, 0.11f, 0.70f, 0.04f),
-    val classRegion: RectF = RectF(0.15f, 0.16f, 0.70f, 0.04f),
+    // Fallback OCR regions target box interiors (labels and borders excluded as much as possible).
+    val nameRegion: RectF = RectF(0.16f, 0.078f, 0.68f, 0.024f),
+    val numberRegion: RectF = RectF(0.16f, 0.128f, 0.68f, 0.024f),
+    val classRegion: RectF = RectF(0.16f, 0.178f, 0.68f, 0.024f),
     // Optional QR region, if null scanner can use manual answer key
     val qrRegion: RectF? = null,
     val grids: List<GridRegion> = listOf(

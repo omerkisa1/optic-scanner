@@ -164,7 +164,7 @@ class FormGenerator @Inject constructor(
         )
 
         val effectiveSubjects = subjects
-            .ifEmpty { listOf(FormSubjectLayout("DERS 1", 20, 4)) }
+            .ifEmpty { listOf(FormSubjectLayout("DERS 1", 20, 5)) }
             .take(template.grids.size)
 
         val overrides = effectiveSubjects.map { subject ->

@@ -1,6 +1,7 @@
 package com.omrreader.domain.usecase
 
 import android.graphics.Bitmap
+import android.graphics.Rect
 import com.google.gson.Gson
 import com.omrreader.domain.model.Exam
 import com.omrreader.domain.model.OMRAnswerKeyResponse
@@ -15,6 +16,10 @@ import com.omrreader.processing.QRProcessor
 import com.omrreader.scoring.ScoringEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.opencv.android.Utils
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.imgproc.Imgproc
 import javax.inject.Inject
 
 class ProcessOMRUseCase @Inject constructor(
@@ -71,19 +76,20 @@ class ProcessOMRUseCase @Inject constructor(
                 )
             }
 
+            val ocrRegions = detectOcrRegions(corrected, template)
             val nameResult = ocrProcessor.recognize(
                 corrected,
-                template.resolveNameRegion(correctedWidth, correctedHeight),
+                ocrRegions.nameRegion,
                 "name"
             )
             val numberResult = ocrProcessor.recognize(
                 corrected,
-                template.resolveNumberRegion(correctedWidth, correctedHeight),
+                ocrRegions.numberRegion,
                 "number"
             )
             val classResult = ocrProcessor.recognize(
                 corrected,
-                template.resolveClassRegion(correctedWidth, correctedHeight),
+                ocrRegions.classRegion,
                 "class"
             )
 
@@ -160,7 +166,7 @@ class ProcessOMRUseCase @Inject constructor(
         val inferred = (subject.answers.maxOrNull() ?: -1) + 1
         if (inferred in 2..8) return inferred
 
-        return fallbackOptionCount?.coerceIn(2, 8) ?: 4
+        return fallbackOptionCount?.coerceIn(2, 8) ?: 5
     }
 
     private fun normalizeWeights(weights: List<Double>, totalQuestions: Int): List<Double> {
@@ -178,4 +184,98 @@ class ProcessOMRUseCase @Inject constructor(
         }
         return normalized
     }
+
+    private fun detectOcrRegions(bitmap: Bitmap, template: FormTemplate): OcrRegions {
+        val fallback = OcrRegions(
+            nameRegion = template.resolveNameRegion(bitmap.width, bitmap.height),
+            numberRegion = template.resolveNumberRegion(bitmap.width, bitmap.height),
+            classRegion = template.resolveClassRegion(bitmap.width, bitmap.height)
+        )
+
+        return try {
+            val source = Mat()
+            Utils.bitmapToMat(bitmap, source)
+
+            val gray = Mat()
+            if (source.channels() == 4) {
+                Imgproc.cvtColor(source, gray, Imgproc.COLOR_RGBA2GRAY)
+            } else {
+                Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY)
+            }
+
+            val binary = Mat()
+            Imgproc.adaptiveThreshold(
+                gray,
+                binary,
+                255.0,
+                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                Imgproc.THRESH_BINARY_INV,
+                15,
+                4.0
+            )
+
+            val contours = mutableListOf<MatOfPoint>()
+            Imgproc.findContours(binary.clone(), contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+
+            val widthThreshold = source.cols() * 0.4
+            val minHeight = (source.rows() * 0.02).toInt().coerceAtLeast(28)
+            val maxHeight = (source.rows() * 0.16).toInt().coerceAtLeast(minHeight + 1)
+            val yThreshold = source.rows() * 0.35
+
+            val rawBoxes = contours.mapNotNull { contour ->
+                val rect = Imgproc.boundingRect(contour)
+                if (rect.width < widthThreshold) return@mapNotNull null
+                if (rect.height !in minHeight..maxHeight) return@mapNotNull null
+                if (rect.y >= yThreshold) return@mapNotNull null
+                rect
+            }
+
+            val deduped = rawBoxes
+                .sortedByDescending { it.width * it.height }
+                .fold(mutableListOf<org.opencv.core.Rect>()) { acc, rect ->
+                    val duplicate = acc.any {
+                        kotlin.math.abs(it.y - rect.y) < (rect.height * 0.5) &&
+                            kotlin.math.abs(it.x - rect.x) < (rect.width * 0.2)
+                    }
+                    if (!duplicate) acc.add(rect)
+                    acc
+                }
+                .sortedBy { it.y }
+                .take(3)
+
+            if (deduped.size < 3) return fallback
+
+            OcrRegions(
+                nameRegion = cropBoxInterior(deduped[0], bitmap.width, bitmap.height),
+                numberRegion = cropBoxInterior(deduped[1], bitmap.width, bitmap.height),
+                classRegion = cropBoxInterior(deduped[2], bitmap.width, bitmap.height)
+            )
+        } catch (_: Throwable) {
+            fallback
+        }
+    }
+
+    private fun cropBoxInterior(
+        box: org.opencv.core.Rect,
+        maxWidth: Int,
+        maxHeight: Int,
+        margin: Int = 8
+    ): Rect {
+        val marginX = maxOf(margin, (box.width * 0.03).toInt())
+        val marginTop = maxOf(margin + 8, (box.height * 0.25).toInt())
+        val marginBottom = maxOf(margin, (box.height * 0.10).toInt())
+
+        val left = (box.x + marginX).coerceIn(0, maxWidth - 1)
+        val top = (box.y + marginTop).coerceIn(0, maxHeight - 1)
+        val right = (box.x + box.width - marginX).coerceIn(left + 1, maxWidth)
+        val bottom = (box.y + box.height - marginBottom).coerceIn(top + 1, maxHeight)
+
+        return Rect(left, top, right, bottom)
+    }
+
+    private data class OcrRegions(
+        val nameRegion: Rect,
+        val numberRegion: Rect,
+        val classRegion: Rect
+    )
 }

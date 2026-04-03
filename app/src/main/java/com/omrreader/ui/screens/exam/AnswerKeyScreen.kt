@@ -193,7 +193,7 @@ fun AnswerKeyScreen(
                     val item = indexedItem.second
                     QuestionEditorRow(
                         questionNumber = item.questionNumber,
-                        optionCount = viewModel.subjects.getOrNull(item.subjectIndex)?.optionCount ?: 4,
+                        optionCount = viewModel.subjects.getOrNull(item.subjectIndex)?.optionCount ?: 5,
                         selectedAnswer = item.correctAnswer,
                         weight = item.weight,
                         isLocked = item.isWeightLocked,

@@ -67,6 +67,8 @@ sealed class FormExportState {
     data class Error(val message: String) : FormExportState()
 }
 
+private const val DEFAULT_OPTION_COUNT = 5
+
 @HiltViewModel
 class ExamViewModel @Inject constructor(
     private val examRepository: ExamRepository,
@@ -100,7 +102,7 @@ class ExamViewModel @Inject constructor(
     var subjectCount by mutableIntStateOf(1)
         private set
 
-    var subjects by mutableStateOf(listOf(SubjectConfig("DERS 1", questionCount, 4)))
+    var subjects by mutableStateOf(listOf(SubjectConfig("DERS 1", questionCount, DEFAULT_OPTION_COUNT)))
         private set
 
     var answerItems by mutableStateOf<List<QuestionEditorState>>(emptyList())
@@ -168,9 +170,9 @@ class ExamViewModel @Inject constructor(
         if (value !in 1..2) return
         subjectCount = value
         subjects = if (value == 1) {
-            listOf(subjects.firstOrNull() ?: SubjectConfig("DERS 1", 20, 4))
+            listOf(subjects.firstOrNull() ?: SubjectConfig("DERS 1", 20, DEFAULT_OPTION_COUNT))
         } else {
-            val first = subjects.firstOrNull() ?: SubjectConfig("DERS 1", 20, 4)
+            val first = subjects.firstOrNull() ?: SubjectConfig("DERS 1", 20, DEFAULT_OPTION_COUNT)
             val second = subjects.getOrNull(1) ?: SubjectConfig("DERS 2", first.questionCount, first.optionCount)
             listOf(first.copy(name = first.name.ifBlank { "DERS 1" }), second.copy(name = second.name.ifBlank { "DERS 2" }))
         }
@@ -238,7 +240,7 @@ class ExamViewModel @Inject constructor(
             val subjectConfig = SubjectConfig(
                 name = baseName,
                 questionCount = questionCount,
-                optionCount = 4
+                optionCount = DEFAULT_OPTION_COUNT
             )
 
             subjectCount = 1
@@ -335,7 +337,7 @@ class ExamViewModel @Inject constructor(
 
     fun setAnswer(itemIndex: Int, answer: Int) {
         val item = answerItems.getOrNull(itemIndex) ?: return
-        val maxOptions = subjects.getOrNull(item.subjectIndex)?.optionCount ?: 4
+        val maxOptions = subjects.getOrNull(item.subjectIndex)?.optionCount ?: DEFAULT_OPTION_COUNT
         if (answer !in 0 until maxOptions) return
 
         answerItems = answerItems.toMutableList().also {
@@ -431,7 +433,7 @@ class ExamViewModel @Inject constructor(
 
             val qrData = currentQrData ?: buildQrData(exam, examId)
             val layouts = subjects
-                .ifEmpty { listOf(SubjectConfig("DERS 1", questionCount, 4)) }
+                .ifEmpty { listOf(SubjectConfig("DERS 1", questionCount, DEFAULT_OPTION_COUNT)) }
                 .mapIndexed { index, subject ->
                     FormSubjectLayout(
                         name = subject.name.ifBlank { "DERS ${index + 1}" },

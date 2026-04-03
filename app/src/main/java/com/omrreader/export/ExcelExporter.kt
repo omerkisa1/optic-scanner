@@ -118,10 +118,9 @@ class ExcelExporter @Inject constructor() {
     ) {
         val totalStudents = results.size.coerceAtLeast(1)
         val totalQuestions = (exam.subjectCount * exam.questionsPerSubject).coerceAtLeast(1)
-        val optionCount = exam.optionCount.coerceAtLeast(4)
         val correctAnswers = parseCorrectAnswersFromQr(exam.qrData)
-
         val answerMaps = results.map { parseAnswerMap(it.answersJson) }
+        val optionCount = resolveOptionCount(exam.optionCount, correctAnswers, answerMaps)
 
         val headerRow = sheet.createRow(0)
         val headers = mutableListOf("Soru #", "Doğru Cevap", "Doğru %")
@@ -183,6 +182,24 @@ class ExcelExporter @Inject constructor() {
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    private fun resolveOptionCount(
+        examOptionCount: Int,
+        correctAnswers: List<Int>,
+        answerMaps: List<Map<Int, Int?>>
+    ): Int {
+        val fromCorrectAnswers = (correctAnswers.maxOrNull() ?: -1) + 1
+        val fromMarkedAnswers = answerMaps
+            .flatMap { it.values }
+            .mapNotNull { it }
+            .maxOrNull()
+            ?.plus(1)
+            ?: 0
+
+        val inferred = maxOf(fromCorrectAnswers, fromMarkedAnswers).coerceIn(0, 8)
+        val normalizedExamCount = examOptionCount.coerceIn(2, 8)
+        return maxOf(5, normalizedExamCount, inferred).coerceIn(2, 8)
     }
 
     private fun toPercent(value: Int, total: Int): Double {
