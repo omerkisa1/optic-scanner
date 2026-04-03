@@ -3,10 +3,12 @@ package com.omrreader.export
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.itextpdf.kernel.colors.DeviceRgb
 import com.itextpdf.kernel.pdf.PdfDocument
 import com.itextpdf.kernel.pdf.PdfWriter
 import com.itextpdf.layout.Document
 import com.itextpdf.layout.element.AreaBreak
+import com.itextpdf.layout.element.Cell
 import com.itextpdf.layout.element.Paragraph
 import com.itextpdf.layout.element.Table
 import com.itextpdf.layout.properties.AreaBreakType
@@ -38,6 +40,10 @@ class PdfExporter @Inject constructor() {
             val max = scores.maxOrNull() ?: 0.0
             val min = scores.minOrNull() ?: 0.0
             val stdDev = kotlin.math.sqrt(scores.map { (it - average) * (it - average) }.average().takeIf { !it.isNaN() } ?: 0.0)
+            val correctAnswers = parseCorrectAnswersFromQr(exam.qrData)
+            val answerMaps = sortedResults.map { parseAnswerMap(it.answersJson) }
+            val totalQuestions = resolveTotalQuestionCount(exam, correctAnswers, answerMaps)
+            val optionCount = resolveOptionCount(exam.optionCount, correctAnswers, answerMaps)
 
             document.add(Paragraph("Sınav Raporu: ${exam.name}").setTextAlignment(TextAlignment.CENTER).setFontSize(20f))
             document.add(Paragraph("Tarih: ${java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale("tr", "TR")).format(java.util.Date())}"))
@@ -70,17 +76,13 @@ class PdfExporter @Inject constructor() {
                 studentTable.addCell(String.format("%.2f", result.totalScore))
             }
 
-            document.add(Paragraph("Öğrenci Listesi").setBold())
+            document.add(Paragraph("Sınıf Listesi").setBold())
             document.add(studentTable)
 
             document.add(AreaBreak(AreaBreakType.NEXT_PAGE))
             document.add(Paragraph("Soru Analizi").setBold())
 
             val totalStudents = sortedResults.size.coerceAtLeast(1)
-            val totalQuestions = (exam.subjectCount * exam.questionsPerSubject).coerceAtLeast(1)
-            val correctAnswers = parseCorrectAnswersFromQr(exam.qrData)
-            val answerMaps = sortedResults.map { parseAnswerMap(it.answersJson) }
-            val optionCount = resolveOptionCount(exam.optionCount, correctAnswers, answerMaps)
 
             val analysisWidths = FloatArray(optionCount + 4) { 1f }
             val analysisTable = Table(analysisWidths)
@@ -111,6 +113,64 @@ class PdfExporter @Inject constructor() {
             }
 
             document.add(analysisTable)
+
+            document.add(AreaBreak(AreaBreakType.NEXT_PAGE))
+            document.add(Paragraph("Detay").setBold())
+
+            val chunkSize = 20
+            var chunkStart = 1
+            while (chunkStart <= totalQuestions) {
+                val chunkEnd = minOf(totalQuestions, chunkStart + chunkSize - 1)
+                if (chunkStart > 1) {
+                    document.add(AreaBreak(AreaBreakType.NEXT_PAGE))
+                }
+
+                document.add(Paragraph("Soru $chunkStart - $chunkEnd").setBold())
+
+                val questionCount = chunkEnd - chunkStart + 1
+                val detailWidths = FloatArray(questionCount + 4) { 1f }
+                detailWidths[0] = 1.2f
+                detailWidths[1] = 2.5f
+                detailWidths[2] = 4.5f
+                detailWidths[3] = 2f
+                val detailTable = Table(detailWidths)
+
+                detailTable.addHeaderCell("#")
+                detailTable.addHeaderCell("Öğrenci No")
+                detailTable.addHeaderCell("Ad Soyad")
+                detailTable.addHeaderCell("Puan")
+                for (question in chunkStart..chunkEnd) {
+                    detailTable.addHeaderCell("S$question")
+                }
+
+                detailTable.addCell("")
+                detailTable.addCell("")
+                detailTable.addCell("Doğru Cevap")
+                detailTable.addCell("")
+                for (question in chunkStart..chunkEnd) {
+                    val correct = correctAnswers.getOrNull(question - 1)
+                    detailTable.addCell(correct?.let { answerLabel(it) } ?: "-")
+                }
+
+                sortedResults.forEachIndexed { index, result ->
+                    val answerMap = answerMaps.getOrNull(index).orEmpty()
+
+                    detailTable.addCell((index + 1).toString())
+                    detailTable.addCell(result.studentNumber ?: "-")
+                    detailTable.addCell(result.studentName ?: "-")
+                    detailTable.addCell(String.format("%.2f", result.totalScore))
+
+                    for (question in chunkStart..chunkEnd) {
+                        val marked = answerMap[question]
+                        val correct = correctAnswers.getOrNull(question - 1)
+                        detailTable.addCell(createDetailStatusCell(marked, correct))
+                    }
+                }
+
+                document.add(detailTable)
+                chunkStart += chunkSize
+            }
+
             document.close()
 
             file
@@ -124,14 +184,28 @@ class PdfExporter @Inject constructor() {
         return try {
             val listType = object : TypeToken<List<Map<String, Any?>>>() {}.type
             val rows: List<Map<String, Any?>> = Gson().fromJson(answersJson, listType)
-            rows.associate { row ->
+            rows.mapNotNull { row ->
                 val question = (row["q"] as? Number)?.toInt() ?: 0
                 val marked = (row["marked"] as? Number)?.toInt()
-                question to marked
-            }
+                if (question <= 0) null else question to marked
+            }.toMap()
         } catch (_: Exception) {
             emptyMap()
         }
+    }
+
+    private fun resolveTotalQuestionCount(
+        exam: Exam,
+        correctAnswers: List<Int>,
+        answerMaps: List<Map<Int, Int?>>
+    ): Int {
+        val fromExam = exam.subjectCount * exam.questionsPerSubject
+        val fromCorrectAnswers = correctAnswers.size
+        val fromMarkedAnswers = answerMaps.maxOfOrNull { map ->
+            map.keys.maxOrNull() ?: 0
+        } ?: 0
+
+        return maxOf(fromExam, fromCorrectAnswers, fromMarkedAnswers).coerceAtLeast(1)
     }
 
     private fun parseCorrectAnswersFromQr(qrData: String?): List<Int> {
@@ -171,6 +245,32 @@ class PdfExporter @Inject constructor() {
     private fun percent(value: Int, total: Int): String {
         val ratio = if (total == 0) 0.0 else (value.toDouble() / total.toDouble()) * 100.0
         return "${String.format("%.2f", ratio)}%"
+    }
+
+    private fun createDetailStatusCell(marked: Int?, correct: Int?): Cell {
+        val cell = Cell().setTextAlignment(TextAlignment.CENTER)
+        when {
+            marked == null -> {
+                cell.add(Paragraph("○"))
+                cell.setBackgroundColor(DeviceRgb(255, 243, 205))
+            }
+
+            correct == null -> {
+                cell.add(Paragraph(answerLabel(marked)))
+                cell.setBackgroundColor(DeviceRgb(255, 243, 205))
+            }
+
+            marked == correct -> {
+                cell.add(Paragraph("✓"))
+                cell.setBackgroundColor(DeviceRgb(212, 237, 218))
+            }
+
+            else -> {
+                cell.add(Paragraph("✗"))
+                cell.setBackgroundColor(DeviceRgb(248, 215, 218))
+            }
+        }
+        return cell
     }
 
     private fun answerLabel(answer: Int): String {

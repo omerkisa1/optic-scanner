@@ -14,9 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -45,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
@@ -69,6 +68,7 @@ fun ReviewScreen(
 
     var overrideDialog by remember { mutableStateOf<OverrideDialogState?>(null) }
     var isSaving by remember { mutableStateOf(false) }
+    var showPaperDialog by remember { mutableStateOf(false) }
     var showDebugDialog by remember { mutableStateOf(false) }
     var showLogDialog by remember { mutableStateOf(false) }
 
@@ -158,16 +158,26 @@ fun ReviewScreen(
                 onValueChange = { className = it }
             )
 
+            val hasPaperImage = !result.correctedImagePath.isNullOrBlank()
             val hasDebugImage = !result.debugImagePath.isNullOrBlank()
             val hasOmrLogs = result.omrDebugLines.isNotEmpty()
 
-            if (hasDebugImage || hasOmrLogs) {
+            if (hasPaperImage || hasDebugImage || hasOmrLogs) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    if (hasPaperImage) {
+                        Button(
+                            onClick = { showPaperDialog = true },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Kağıt Üzeri Sonuç")
+                        }
+                    }
+
                     if (hasDebugImage) {
                         Button(
                             onClick = { showDebugDialog = true },
@@ -195,25 +205,22 @@ fun ReviewScreen(
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
             )
 
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
+            LazyColumn(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 itemsIndexed(result.omrResults) { index, question ->
                     val selected = effectiveAnswers.getOrNull(index)
                     val correct = correctAnswers.getOrNull(index)
-                    val status = when {
-                        !question.isValid -> "⚠"
-                        selected == null -> "—"
+                    val statusIcon = when {
+                        selected == null -> "○"
                         selected == correct -> "✓"
                         else -> "✗"
                     }
-                    val statusColor = when (status) {
+                    val statusColor = when (statusIcon) {
                         "✓" -> Color(0xFF2E7D32)
                         "✗" -> Color(0xFFC62828)
-                        "⚠" -> Color(0xFFF9A825)
+                        "○" -> Color(0xFFF9A825)
                         else -> Color(0xFF757575)
                     }
 
@@ -225,36 +232,42 @@ fun ReviewScreen(
                                     questionIndex = index,
                                     optionCount = question.bubbleStates.size
                                 )
-                            }
-                            .padding(vertical = 2.dp),
+                            },
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant
                         )
                     ) {
-                        Column(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Soru ${question.questionNumber}",
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = status,
-                                    color = statusColor,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                            Text(
+                                text = "Soru ${question.questionNumber}",
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1.2f)
+                            )
 
-                            Text(text = "İşaret: ${bubbleVisuals(selected, question.bubbleStates.size)}")
-                            Text(text = "Doğru: ${answerLabel(correct)}")
+                            Text(
+                                text = answerLabel(selected).ifBlank { "—" },
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.Center
+                            )
+
+                            Text(
+                                text = answerLabel(correct).ifBlank { "—" },
+                                modifier = Modifier.weight(1f),
+                                textAlign = TextAlign.Center
+                            )
+
+                            Text(
+                                text = statusIcon,
+                                color = statusColor,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(0.6f),
+                                textAlign = TextAlign.End
+                            )
                         }
                     }
                 }
@@ -365,6 +378,48 @@ fun ReviewScreen(
                 }
             }
         )
+    }
+
+    if (showPaperDialog) {
+        val paperBitmap = remember(result.correctedImagePath) {
+            result.correctedImagePath
+                ?.takeIf { it.isNotBlank() }
+                ?.let { path -> BitmapFactory.decodeFile(path) }
+        }
+
+        Dialog(onDismissRequest = { showPaperDialog = false }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.95f))
+            ) {
+                if (paperBitmap != null) {
+                    Image(
+                        bitmap = paperBitmap.asImageBitmap(),
+                        contentDescription = "Kağıt üzeri doğru yanlış görüntüsü",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(12.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    Text(
+                        text = "Kağıt görüntüsü yüklenemedi.",
+                        color = Color.White,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+
+                TextButton(
+                    onClick = { showPaperDialog = false },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                ) {
+                    Text("Kapat")
+                }
+            }
+        }
     }
 
     if (showDebugDialog) {
@@ -521,15 +576,6 @@ private fun EditableFieldWithConfidence(
 }
 
 private fun answerLabel(answer: Int?): String {
-    if (answer == null) return "-"
+    if (answer == null) return "—"
     return ('A'.code + answer).toChar().toString()
-}
-
-private fun bubbleVisuals(selected: Int?, optionCount: Int): String {
-    return buildString {
-        for (index in 0 until optionCount) {
-            append(if (selected == index) "●" else "○")
-            if (index < optionCount - 1) append(" ")
-        }
-    }
 }

@@ -1,6 +1,8 @@
 package com.omrreader.ui.screens.results
 
 import android.content.Context
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.omrreader.data.repository.ExamRepository
@@ -41,6 +43,8 @@ class ResultViewModel @Inject constructor(
     private val pdfExporter: PdfExporter
 ) : ViewModel() {
 
+    private val gson = Gson()
+
     private val _exam = MutableStateFlow<Exam?>(null)
     val exam: StateFlow<Exam?> = _exam.asStateFlow()
 
@@ -61,6 +65,9 @@ class ResultViewModel @Inject constructor(
     private val _selectedResult = MutableStateFlow<StudentResult?>(null)
     val selectedResult: StateFlow<StudentResult?> = _selectedResult.asStateFlow()
 
+    private val _selectedCorrectAnswers = MutableStateFlow<List<Int>>(emptyList())
+    val selectedCorrectAnswers: StateFlow<List<Int>> = _selectedCorrectAnswers.asStateFlow()
+
     private val _exportState = MutableStateFlow<ExportState>(ExportState.Idle)
     val exportState: StateFlow<ExportState> = _exportState.asStateFlow()
 
@@ -76,7 +83,25 @@ class ResultViewModel @Inject constructor(
 
     fun loadResultDetail(resultId: Long) {
         viewModelScope.launch {
-            _selectedResult.value = resultRepository.getResultById(resultId)
+            val result = resultRepository.getResultById(resultId)
+            _selectedResult.value = result
+
+            if (result == null) {
+                _selectedCorrectAnswers.value = emptyList()
+                return@launch
+            }
+
+            val exam = examRepository.getExamById(result.examId)
+            val fromQr = parseCorrectAnswersFromQr(exam?.qrData)
+            if (fromQr.isNotEmpty()) {
+                _selectedCorrectAnswers.value = fromQr
+                return@launch
+            }
+
+            val fromDb = examRepository.getAnswerKeysForExam(result.examId)
+                .sortedWith(compareBy({ it.subjectIndex }, { it.questionNumber }))
+                .map { it.correctAnswer }
+            _selectedCorrectAnswers.value = fromDb
         }
     }
 
@@ -141,5 +166,21 @@ class ResultViewModel @Inject constructor(
             lowest = lowest,
             stdDeviation = stdDeviation
         )
+    }
+
+    private fun parseCorrectAnswersFromQr(qrData: String?): List<Int> {
+        if (qrData.isNullOrBlank()) return emptyList()
+        return try {
+            val mapType = object : TypeToken<Map<String, Any?>>() {}.type
+            val root: Map<String, Any?> = gson.fromJson(qrData, mapType)
+            val subjects = root["subjects"] as? List<*> ?: return emptyList()
+            subjects.flatMap { subject ->
+                val subjectMap = subject as? Map<*, *> ?: return@flatMap emptyList()
+                val answers = subjectMap["answers"] as? List<*> ?: return@flatMap emptyList()
+                answers.mapNotNull { (it as? Number)?.toInt() }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 }

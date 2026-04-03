@@ -7,6 +7,8 @@ import com.google.gson.reflect.TypeToken
 import com.omrreader.domain.model.Exam
 import com.omrreader.domain.model.StudentResult
 import org.apache.poi.hssf.usermodel.HSSFWorkbook
+import org.apache.poi.ss.usermodel.FillPatternType
+import org.apache.poi.ss.usermodel.IndexedColors
 import java.io.File
 import java.io.FileOutputStream
 import javax.inject.Inject
@@ -22,14 +24,35 @@ class ExcelExporter @Inject constructor() {
     fun exportToExcel(context: Context, exam: Exam, results: List<StudentResult>): File? {
         return try {
             val workbook = HSSFWorkbook()
-            val resultSheet = workbook.createSheet("Sonuçlar")
+            val resultSheet = workbook.createSheet("Sınıf Listesi")
             val analysisSheet = workbook.createSheet("Soru Analizi")
+            val detailSheet = workbook.createSheet("Detay")
 
-            writeResultsSheet(resultSheet, results)
-            writeQuestionAnalysisSheet(analysisSheet, exam, results)
+            val sortedResults = results.sortedByDescending { it.totalScore }
+            val correctAnswers = parseCorrectAnswersFromQr(exam.qrData)
+            val answerMaps = sortedResults.map { parseAnswerMap(it.answersJson) }
+            val totalQuestions = resolveTotalQuestionCount(exam, correctAnswers, answerMaps)
+
+            writeResultsSheet(resultSheet, sortedResults)
+            writeQuestionAnalysisSheet(
+                sheet = analysisSheet,
+                exam = exam,
+                sortedResults = sortedResults,
+                totalQuestions = totalQuestions,
+                correctAnswers = correctAnswers,
+                answerMaps = answerMaps
+            )
+            writeDetailSheet(
+                workbook = workbook,
+                sheet = detailSheet,
+                sortedResults = sortedResults,
+                totalQuestions = totalQuestions,
+                correctAnswers = correctAnswers,
+                answerMaps = answerMaps
+            )
 
             // autoSizeColumn is not reliable on Android (AWT/font dependencies).
-            applyColumnWidths(resultSheet, analysisSheet)
+            applyColumnWidths(resultSheet, analysisSheet, detailSheet, totalQuestions)
 
             val dir = File(context.cacheDir, "exports")
             if (!dir.exists()) dir.mkdirs()
@@ -51,7 +74,9 @@ class ExcelExporter @Inject constructor() {
 
     private fun applyColumnWidths(
         resultSheet: org.apache.poi.ss.usermodel.Sheet,
-        analysisSheet: org.apache.poi.ss.usermodel.Sheet
+        analysisSheet: org.apache.poi.ss.usermodel.Sheet,
+        detailSheet: org.apache.poi.ss.usermodel.Sheet,
+        totalQuestions: Int
     ) {
         val resultWidths = intArrayOf(1800, 4500, 7000, 3800, 2200, 2200, 2200, 2600)
         for (i in resultWidths.indices) {
@@ -61,8 +86,17 @@ class ExcelExporter @Inject constructor() {
         analysisSheet.setColumnWidth(0, 2200)
         analysisSheet.setColumnWidth(1, 3200)
         analysisSheet.setColumnWidth(2, 2600)
-        for (i in 3..10) {
+        val analysisLast = (analysisSheet.getRow(0)?.lastCellNum?.toInt() ?: 0).coerceAtLeast(4)
+        for (i in 3 until analysisLast) {
             analysisSheet.setColumnWidth(i, 2200)
+        }
+
+        val detailWidths = intArrayOf(1800, 4200, 7000, 3200, 2600)
+        for (i in detailWidths.indices) {
+            detailSheet.setColumnWidth(i, detailWidths[i])
+        }
+        for (q in 0 until totalQuestions) {
+            detailSheet.setColumnWidth(5 + q, 1150)
         }
     }
 
@@ -114,12 +148,12 @@ class ExcelExporter @Inject constructor() {
     private fun writeQuestionAnalysisSheet(
         sheet: org.apache.poi.ss.usermodel.Sheet,
         exam: Exam,
-        results: List<StudentResult>
+        sortedResults: List<StudentResult>,
+        totalQuestions: Int,
+        correctAnswers: List<Int>,
+        answerMaps: List<Map<Int, Int?>>
     ) {
-        val totalStudents = results.size.coerceAtLeast(1)
-        val totalQuestions = (exam.subjectCount * exam.questionsPerSubject).coerceAtLeast(1)
-        val correctAnswers = parseCorrectAnswersFromQr(exam.qrData)
-        val answerMaps = results.map { parseAnswerMap(it.answersJson) }
+        val totalStudents = sortedResults.size.coerceAtLeast(1)
         val optionCount = resolveOptionCount(exam.optionCount, correctAnswers, answerMaps)
 
         val headerRow = sheet.createRow(0)
@@ -154,18 +188,109 @@ class ExcelExporter @Inject constructor() {
         }
     }
 
+    private fun writeDetailSheet(
+        workbook: HSSFWorkbook,
+        sheet: org.apache.poi.ss.usermodel.Sheet,
+        sortedResults: List<StudentResult>,
+        totalQuestions: Int,
+        correctAnswers: List<Int>,
+        answerMaps: List<Map<Int, Int?>>
+    ) {
+        val correctStyle = workbook.createCellStyle().apply {
+            fillForegroundColor = IndexedColors.LIGHT_GREEN.index
+            fillPattern = FillPatternType.SOLID_FOREGROUND.code
+        }
+        val wrongStyle = workbook.createCellStyle().apply {
+            fillForegroundColor = IndexedColors.ROSE.index
+            fillPattern = FillPatternType.SOLID_FOREGROUND.code
+        }
+        val emptyStyle = workbook.createCellStyle().apply {
+            fillForegroundColor = IndexedColors.LIGHT_YELLOW.index
+            fillPattern = FillPatternType.SOLID_FOREGROUND.code
+        }
+
+        val headerRow = sheet.createRow(0)
+        val fixedHeaders = listOf("#", "Öğrenci No", "Ad Soyad", "Sınıf", "Puan")
+        fixedHeaders.forEachIndexed { index, header ->
+            headerRow.createCell(index).setCellValue(header)
+        }
+        for (question in 1..totalQuestions) {
+            headerRow.createCell(4 + question).setCellValue("S$question")
+        }
+
+        val answerKeyRow = sheet.createRow(1)
+        answerKeyRow.createCell(3).setCellValue("Doğru Cevap")
+        for (question in 1..totalQuestions) {
+            val correct = correctAnswers.getOrNull(question - 1)
+            answerKeyRow.createCell(4 + question)
+                .setCellValue(correct?.let { answerLabel(it) } ?: "-")
+        }
+
+        sortedResults.forEachIndexed { index, result ->
+            val row = sheet.createRow(index + 2)
+            row.createCell(0).setCellValue((index + 1).toDouble())
+            row.createCell(1).setCellValue(result.studentNumber ?: "-")
+            row.createCell(2).setCellValue(result.studentName ?: "-")
+            row.createCell(3).setCellValue(result.className ?: "-")
+            row.createCell(4).setCellValue(result.totalScore)
+
+            val answerMap = answerMaps.getOrNull(index).orEmpty()
+            for (question in 1..totalQuestions) {
+                val marked = answerMap[question]
+                val correct = correctAnswers.getOrNull(question - 1)
+                val cell = row.createCell(4 + question)
+
+                when {
+                    marked == null -> {
+                        cell.setCellValue("○")
+                        cell.cellStyle = emptyStyle
+                    }
+
+                    correct == null -> {
+                        cell.setCellValue(answerLabel(marked))
+                        cell.cellStyle = emptyStyle
+                    }
+
+                    marked == correct -> {
+                        cell.setCellValue("✓")
+                        cell.cellStyle = correctStyle
+                    }
+
+                    else -> {
+                        cell.setCellValue("✗")
+                        cell.cellStyle = wrongStyle
+                    }
+                }
+            }
+        }
+    }
+
     private fun parseAnswerMap(answersJson: String): Map<Int, Int?> {
         return try {
             val listType = object : TypeToken<List<Map<String, Any?>>>() {}.type
             val rows: List<Map<String, Any?>> = Gson().fromJson(answersJson, listType)
-            rows.associate { row ->
+            rows.mapNotNull { row ->
                 val question = (row["q"] as? Number)?.toInt() ?: 0
                 val marked = (row["marked"] as? Number)?.toInt()
-                question to marked
-            }
+                if (question <= 0) null else question to marked
+            }.toMap()
         } catch (_: Exception) {
             emptyMap()
         }
+    }
+
+    private fun resolveTotalQuestionCount(
+        exam: Exam,
+        correctAnswers: List<Int>,
+        answerMaps: List<Map<Int, Int?>>
+    ): Int {
+        val fromExam = exam.subjectCount * exam.questionsPerSubject
+        val fromCorrectAnswers = correctAnswers.size
+        val fromMarkedAnswers = answerMaps.maxOfOrNull { map ->
+            map.keys.maxOrNull() ?: 0
+        } ?: 0
+
+        return maxOf(fromExam, fromCorrectAnswers, fromMarkedAnswers).coerceAtLeast(1)
     }
 
     private fun parseCorrectAnswersFromQr(qrData: String?): List<Int> {

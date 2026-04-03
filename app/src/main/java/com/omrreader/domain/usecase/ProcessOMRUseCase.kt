@@ -1,24 +1,35 @@
 package com.omrreader.domain.usecase
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.google.gson.Gson
 import com.omrreader.domain.model.Exam
 import com.omrreader.domain.model.OMRAnswerKeyResponse
 import com.omrreader.domain.model.ProcessResult
+import com.omrreader.domain.model.QuestionResult
 import com.omrreader.domain.model.SubjectInfo
 import com.omrreader.processing.BubbleDetector
 import com.omrreader.processing.FormTemplate
 import com.omrreader.processing.GridOverride
+import com.omrreader.processing.ResolvedGridRegion
 import com.omrreader.processing.OCRProcessor
 import com.omrreader.processing.PerspectiveCorrector
 import com.omrreader.processing.QRProcessor
 import com.omrreader.scoring.ScoringEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
 import javax.inject.Inject
+import kotlin.math.min
 
 class ProcessOMRUseCase @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val perspectiveCorrector: PerspectiveCorrector,
     private val bubbleDetector: BubbleDetector,
     private val qrProcessor: QRProcessor,
@@ -141,6 +152,13 @@ class ProcessOMRUseCase @Inject constructor(
                 weights = normalizedWeights
             )
 
+            val correctedOverlayPath = createPaperEvaluationOverlay(
+                bitmap = corrected,
+                grids = resolvedGrids,
+                omrResults = normalizedOmrResults,
+                correctAnswers = correctAnswers
+            )
+
             ProcessResult.Success(
                 studentName = nameResult.processedText,
                 studentNumber = numberResult.processedText,
@@ -158,7 +176,7 @@ class ProcessOMRUseCase @Inject constructor(
                 omrResults = normalizedOmrResults,
                 scoreResult = scoreResult,
                 answerKey = answerKey,
-                correctedImagePath = null,
+                correctedImagePath = correctedOverlayPath,
                 debugImagePath = bubbleOutput.debugImagePath,
                 thresholdDebugImagePath = bubbleOutput.thresholdDebugImagePath,
                 omrDebugLines = bubbleOutput.questionLogs
@@ -206,5 +224,114 @@ class ProcessOMRUseCase @Inject constructor(
             normalized[index] = validWeights[index]
         }
         return normalized
+    }
+
+    private fun createPaperEvaluationOverlay(
+        bitmap: Bitmap,
+        grids: List<ResolvedGridRegion>,
+        omrResults: List<QuestionResult>,
+        correctAnswers: List<Int>
+    ): String? {
+        return try {
+            val mutable = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            val canvas = Canvas(mutable)
+
+            val goodPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(46, 125, 50)
+                style = Paint.Style.STROKE
+                strokeWidth = 3f
+            }
+            val badPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(198, 40, 40)
+                style = Paint.Style.STROKE
+                strokeWidth = 3f
+            }
+            val warnPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(249, 168, 37)
+                style = Paint.Style.STROKE
+                strokeWidth = 3f
+            }
+            val symbolPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                textSize = 20f
+                style = Paint.Style.FILL
+            }
+
+            var questionIndex = 0
+            for (grid in grids) {
+                val radius = (min(grid.cellWidth, grid.cellHeight) * 0.32f).coerceAtLeast(8f)
+                for (row in 0 until grid.rows) {
+                    if (questionIndex >= omrResults.size || questionIndex >= correctAnswers.size) break
+
+                    val selected = omrResults[questionIndex].selectedAnswer
+                    val correct = correctAnswers[questionIndex]
+                    val centerY = grid.region.top + ((row + 0.5f) * grid.cellHeight)
+
+                    if (selected != null && selected in 0 until grid.cols) {
+                        val centerX = grid.region.left + ((selected + 0.5f) * grid.cellWidth)
+                        val paint = if (selected == correct) goodPaint else badPaint
+                        canvas.drawCircle(centerX, centerY, radius, paint)
+
+                        if (selected != correct) {
+                            canvas.drawLine(
+                                centerX - radius,
+                                centerY - radius,
+                                centerX + radius,
+                                centerY + radius,
+                                badPaint
+                            )
+                            canvas.drawLine(
+                                centerX + radius,
+                                centerY - radius,
+                                centerX - radius,
+                                centerY + radius,
+                                badPaint
+                            )
+                        }
+                    }
+
+                    if (correct in 0 until grid.cols) {
+                        val correctCenterX = grid.region.left + ((correct + 0.5f) * grid.cellWidth)
+                        val isWrongOrEmpty = selected == null || selected != correct
+                        if (isWrongOrEmpty) {
+                            canvas.drawCircle(correctCenterX, centerY, radius, goodPaint)
+                        }
+                    }
+
+                    val symbol = when {
+                        selected == null -> "○"
+                        selected == correct -> "✓"
+                        else -> "✗"
+                    }
+                    val symbolPaintUse = when (symbol) {
+                        "✓" -> goodPaint
+                        "✗" -> badPaint
+                        else -> warnPaint
+                    }
+
+                    val leftMarkerX = (grid.region.left - 24).toFloat().coerceAtLeast(6f)
+                    canvas.drawCircle(leftMarkerX, centerY, 8f, symbolPaintUse)
+                    canvas.drawText(symbol, leftMarkerX + 12f, centerY + 7f, symbolPaint)
+
+                    questionIndex++
+                }
+            }
+
+            val dir = File(context.cacheDir, "exports")
+            if (!dir.exists()) {
+                dir.mkdirs()
+            }
+            val file = File(dir, "omr_overlay_${System.currentTimeMillis()}.png")
+            FileOutputStream(file).use { out ->
+                mutable.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+            if (!mutable.isRecycled) {
+                mutable.recycle()
+            }
+            file.absolutePath
+        } catch (t: Throwable) {
+            Log.e(TAG, "Paper overlay save failed", t)
+            null
+        }
     }
 }
