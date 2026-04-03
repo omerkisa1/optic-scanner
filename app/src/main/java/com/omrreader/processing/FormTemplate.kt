@@ -12,11 +12,11 @@ data class FormTemplate(
     // Four corner black markers
     val markerSize: Int = 60,
     val markerMargin: Int = 20,
-    // RectF fields are used as (x, y, width, height) in normalized ratios
-    // Fallback OCR regions target box interiors (labels and borders excluded as much as possible).
-    val nameRegion: RectF = RectF(0.16f, 0.078f, 0.68f, 0.024f),
-    val numberRegion: RectF = RectF(0.16f, 0.128f, 0.68f, 0.024f),
-    val classRegion: RectF = RectF(0.16f, 0.178f, 0.68f, 0.024f),
+    // RectF fields are used as (x, y, width, height) in normalized ratios.
+    // These represent full identity boxes; OCR strips top label band before recognition.
+    val nameRegion: RectF = RectF(0.14f, 0.07f, 0.72f, 0.055f),
+    val numberRegion: RectF = RectF(0.14f, 0.13f, 0.72f, 0.055f),
+    val classRegion: RectF = RectF(0.14f, 0.19f, 0.72f, 0.055f),
     // Optional QR region, if null scanner can use manual answer key
     val qrRegion: RectF? = null,
     val grids: List<GridRegion> = listOf(

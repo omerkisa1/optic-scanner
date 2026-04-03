@@ -10,6 +10,7 @@ import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.Point
 import org.opencv.core.Rect
 import org.opencv.core.Scalar
 import org.opencv.core.Size
@@ -39,9 +40,19 @@ class OCRProcessor @Inject constructor() {
 
             val safeRegion = sanitizeRegion(region, fullImage.cols(), fullImage.rows())
             val roi = prepareROIForOCR(fullImage, safeRegion)
+            val cleanedRoi = removeLabelsAndCropForOcr(roi)
 
-            val binaryCandidateMat = enhanceForOCR(roi)
-            val grayCandidateMat = prepareEnhancedGrayVersion(roi)
+            val binaryCandidateMat = if (regionName == "number") {
+                preprocessNumberField(cleanedRoi)
+            } else {
+                enhanceForOCR(cleanedRoi)
+            }
+
+            val grayCandidateMat = if (regionName == "number") {
+                prepareNumberGrayVersion(cleanedRoi)
+            } else {
+                prepareEnhancedGrayVersion(cleanedRoi)
+            }
 
             val (textBinary, confBinary) = recognizeCandidate(binaryCandidateMat)
             val (textGray, confGray) = recognizeCandidate(grayCandidateMat)
@@ -87,6 +98,51 @@ class OCRProcessor @Inject constructor() {
         }
 
         return roi
+    }
+
+    private fun removeLabelsAndCropForOcr(roi: Mat): Mat {
+        if (roi.empty()) return roi
+
+        val cleaned = roi.clone()
+        val rows = cleaned.rows()
+        val cols = cleaned.cols()
+        if (rows < 4 || cols < 4) return cleaned
+
+        val labelHeight = (rows * 0.30).toInt().coerceIn(1, rows - 1)
+        Imgproc.rectangle(
+            cleaned,
+            Point(0.0, 0.0),
+            Point(cols.toDouble(), labelHeight.toDouble()),
+            Scalar(255.0, 255.0, 255.0),
+            -1
+        )
+
+        val marginX = (cols * 0.02).toInt().coerceAtLeast(4)
+        val marginBottom = (rows * 0.05).toInt().coerceAtLeast(2)
+        val cropTop = (rows * 0.35).toInt().coerceIn(1, rows - 2)
+
+        val cropX = marginX.coerceAtMost(cols - 2)
+        val cropY = cropTop.coerceAtMost(rows - 2)
+        val cropWidth = (cols - (marginX * 2)).coerceAtLeast(2)
+        val cropHeight = (rows - cropTop - marginBottom).coerceAtLeast(2)
+
+        val safeRect = sanitizeRect(cropX, cropY, cropWidth, cropHeight, cols, rows)
+        return Mat(cleaned, safeRect).clone()
+    }
+
+    private fun sanitizeRect(
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        maxWidth: Int,
+        maxHeight: Int
+    ): Rect {
+        val safeX = x.coerceIn(0, maxWidth - 1)
+        val safeY = y.coerceIn(0, maxHeight - 1)
+        val safeWidth = width.coerceAtLeast(1).coerceAtMost(maxWidth - safeX)
+        val safeHeight = height.coerceAtLeast(1).coerceAtMost(maxHeight - safeY)
+        return Rect(safeX, safeY, safeWidth, safeHeight)
     }
 
     private fun enhanceForOCR(roi: Mat): Mat {
@@ -147,6 +203,38 @@ class OCRProcessor @Inject constructor() {
         return padded
     }
 
+    private fun preprocessNumberField(roi: Mat): Mat {
+        val gray = toGray(roi)
+
+        val binary = Mat()
+        Imgproc.adaptiveThreshold(
+            gray,
+            binary,
+            255.0,
+            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+            Imgproc.THRESH_BINARY,
+            31,
+            15.0
+        )
+
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(2.0, 2.0))
+        Imgproc.morphologyEx(binary, binary, Imgproc.MORPH_OPEN, kernel)
+
+        val padded = Mat()
+        Core.copyMakeBorder(binary, padded, 20, 20, 20, 20, Core.BORDER_CONSTANT, Scalar(255.0))
+        return padded
+    }
+
+    private fun prepareNumberGrayVersion(roi: Mat): Mat {
+        val gray = toGray(roi)
+        val denoised = Mat()
+        Imgproc.bilateralFilter(gray, denoised, 7, 60.0, 60.0)
+
+        val padded = Mat()
+        Core.copyMakeBorder(denoised, padded, 20, 20, 20, 20, Core.BORDER_CONSTANT, Scalar(255.0))
+        return padded
+    }
+
     private fun toGray(input: Mat): Mat {
         val gray = Mat()
         when (input.channels()) {
@@ -183,7 +271,7 @@ class OCRProcessor @Inject constructor() {
     }
 
     private fun postProcess(rawText: String, fieldType: String): String {
-        var text = rawText.trim()
+        var text = removeKnownLabels(rawText, fieldType).trim()
 
         when (fieldType) {
             "name" -> {
@@ -206,11 +294,15 @@ class OCRProcessor @Inject constructor() {
             }
 
             "number" -> {
-                text = rawText
+                text = text
                     .replace("O", "0").replace("o", "0")
-                    .replace("I", "1").replace("l", "1")
+                    .replace("I", "1").replace("l", "1").replace("|", "1")
                     .replace("S", "5").replace("s", "5")
-                    .replace("B", "8")
+                    .replace("B", "8").replace("b", "6")
+                    .replace("G", "6").replace("g", "9")
+                    .replace("Z", "2").replace("z", "2")
+                    .replace("T", "7")
+                    .replace("A", "4")
                     .filter { it.isDigit() }
             }
 
@@ -223,6 +315,39 @@ class OCRProcessor @Inject constructor() {
         }
 
         return text
+    }
+
+    private fun removeKnownLabels(rawText: String, fieldType: String): String {
+        var cleaned = rawText
+        val commonLabels = listOf(
+            "Kimlik Bilgileri",
+            "Ad Soyad",
+            "Ogrenci No",
+            "Öğrenci No",
+            "Sinif",
+            "Sınıf",
+            "Ogrenci",
+            "Öğrenci",
+            "Kimlik",
+            "Bilgileri"
+        )
+
+        val scopedLabels = if (fieldType == "name") {
+            commonLabels
+        } else {
+            commonLabels + listOf("No")
+        }
+
+        for (label in scopedLabels.sortedByDescending { it.length }) {
+            val escaped = Regex.escape(label)
+            cleaned = cleaned.replace(Regex("\\b$escaped\\b", RegexOption.IGNORE_CASE), " ")
+        }
+
+        return cleaned
+            .trim()
+            .trim('.', ':', '-', '_', ' ')
+            .replace(Regex("\\s{2,}"), " ")
+            .trim()
     }
 
     private fun capitalizeTurkishWord(rawWord: String): String {

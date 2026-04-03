@@ -26,8 +26,8 @@ class BubbleDetector @Inject constructor() {
         private const val TAG = "BubbleDetector"
         private const val EMPTY_THRESHOLD = 0.25
         private const val MARKED_THRESHOLD = 0.25
-        private const val FILLED_THRESHOLD = 0.75
-        private const val RELATIVE_DOMINANCE_RATIO = 1.5
+        private const val FILLED_THRESHOLD = 0.85
+        private const val RELATIVE_DOMINANCE_RATIO = 1.8
     }
 
     fun detect(bitmap: Bitmap, grids: List<ResolvedGridRegion>): List<QuestionResult> {
@@ -254,30 +254,33 @@ class BubbleDetector @Inject constructor() {
 
         val markedIndices = states.indices.filter { states[it] == BubbleState.MARKED }
         val filledIndices = states.indices.filter { states[it] == BubbleState.FILLED }
+        val emptyIndices = states.indices.filter { states[it] == BubbleState.EMPTY }
         val result: QuestionResult
         val status: String
 
         when {
-            markedIndices.isEmpty() && filledIndices.isEmpty() -> {
+            markedIndices.size == 1 && filledIndices.isEmpty() -> {
                 result = QuestionResult(
                     questionNumber = questionNumber,
                     bubbleStates = states,
-                    selectedAnswer = null,
+                    selectedAnswer = markedIndices[0],
                     fillRatios = fillRatios,
                     isValid = true
                 )
-                status = "EMPTY"
+                status = "VALID"
             }
 
-            filledIndices.size == states.size -> {
+            filledIndices.size == 1 &&
+                markedIndices.isEmpty() &&
+                emptyIndices.size == states.size - 1 -> {
                 result = QuestionResult(
                     questionNumber = questionNumber,
                     bubbleStates = states,
-                    selectedAnswer = null,
+                    selectedAnswer = filledIndices[0],
                     fillRatios = fillRatios,
                     isValid = true
                 )
-                status = "ALL_CANCELLED"
+                status = "HEAVY_MARK"
             }
 
             filledIndices.isNotEmpty() && markedIndices.size == 1 -> {
@@ -291,15 +294,37 @@ class BubbleDetector @Inject constructor() {
                 status = "CORRECTED"
             }
 
-            markedIndices.size == 1 -> {
+            filledIndices.size > 1 && markedIndices.isEmpty() -> {
                 result = QuestionResult(
                     questionNumber = questionNumber,
                     bubbleStates = states,
-                    selectedAnswer = markedIndices[0],
+                    selectedAnswer = null,
                     fillRatios = fillRatios,
                     isValid = true
                 )
-                status = "VALID"
+                status = "ALL_CANCELLED"
+            }
+
+            markedIndices.size > 1 && filledIndices.isEmpty() -> {
+                result = QuestionResult(
+                    questionNumber = questionNumber,
+                    bubbleStates = states,
+                    selectedAnswer = null,
+                    fillRatios = fillRatios,
+                    isValid = false
+                )
+                status = "MULTIPLE"
+            }
+
+            markedIndices.isEmpty() && filledIndices.isEmpty() -> {
+                result = QuestionResult(
+                    questionNumber = questionNumber,
+                    bubbleStates = states,
+                    selectedAnswer = null,
+                    fillRatios = fillRatios,
+                    isValid = true
+                )
+                status = "EMPTY"
             }
 
             else -> {
@@ -312,21 +337,16 @@ class BubbleDetector @Inject constructor() {
                         fillRatios = fillRatios,
                         isValid = true
                     )
-                    status = "VALID_RELATIVE"
+                    status = "RELATIVE"
                 } else {
-                    val sorted = fillRatios.sortedDescending()
-                    val strongest = sorted.getOrElse(0) { 0.0 }
-                    val second = sorted.getOrElse(1) { 0.0 }
-                    val isMultiple = strongest > MARKED_THRESHOLD && second > MARKED_THRESHOLD
-
                     result = QuestionResult(
                         questionNumber = questionNumber,
-                        bubbleStates = if (isMultiple) states else List(states.size) { BubbleState.EMPTY },
+                        bubbleStates = states,
                         selectedAnswer = null,
                         fillRatios = fillRatios,
-                        isValid = !isMultiple
+                        isValid = false
                     )
-                    status = if (isMultiple) "MULTIPLE" else "EMPTY"
+                    status = "AMBIGUOUS"
                 }
             }
         }
