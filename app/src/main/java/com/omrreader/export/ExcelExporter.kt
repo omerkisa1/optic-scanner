@@ -4,6 +4,10 @@ import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.omrreader.data.db.dao.ClassExamResultView
+import com.omrreader.data.db.entity.AnswerKeyEntity
+import com.omrreader.data.db.entity.ClassroomEntity
+import com.omrreader.data.db.entity.RosterStudentEntity
 import com.omrreader.domain.model.Exam
 import com.omrreader.domain.model.StudentResult
 import org.apache.poi.hssf.usermodel.HSSFWorkbook
@@ -334,5 +338,220 @@ class ExcelExporter @Inject constructor() {
 
     private fun answerLabel(answer: Int): String {
         return ('A'.code + answer).toChar().toString()
+    }
+
+    fun exportClassroomReport(
+        context: Context,
+        classroom: ClassroomEntity,
+        students: List<RosterStudentEntity>,
+        results: List<ClassExamResultView>,
+        correctAnswers: List<Int>
+    ): File? {
+        return try {
+            val workbook = HSSFWorkbook()
+            val questionCount = correctAnswers.size.coerceAtLeast(
+                results.maxOfOrNull { parseClassAnswerMap(it.answersJson).keys.maxOrNull() ?: 0 } ?: 0
+            )
+
+            writeClassroomResultsSheet(workbook, results)
+            writeClassroomAnalysisSheet(workbook, results, correctAnswers, questionCount)
+            writeClassroomDetailSheet(workbook, results, correctAnswers, questionCount)
+
+            val dir = File(context.cacheDir, "exports")
+            if (!dir.exists()) dir.mkdirs()
+
+            val safeName = classroom.displayName.replace(Regex("[^\\w\\s\\-()]"), "").take(40)
+            val file = File(dir, "${safeName}_rapor.xls")
+
+            FileOutputStream(file).use { workbook.write(it) }
+            workbook.close()
+            file
+        } catch (t: Throwable) {
+            Log.e(TAG, "Classroom Excel export failed", t)
+            null
+        }
+    }
+
+    private fun writeClassroomResultsSheet(
+        workbook: HSSFWorkbook,
+        results: List<ClassExamResultView>
+    ) {
+        val sheet = workbook.createSheet("Sınıf Listesi")
+        val sorted = results.sortedByDescending { it.totalScore }
+
+        val headerRow = sheet.createRow(0)
+        listOf("#", "Öğrenci No", "Ad Soyad", "Doğru", "Yanlış", "Boş", "Puan")
+            .forEachIndexed { i, title -> headerRow.createCell(i).setCellValue(title) }
+
+        val allScores = mutableListOf<Double>()
+        sorted.forEachIndexed { index, result ->
+            val row = sheet.createRow(index + 1)
+            row.createCell(0).setCellValue((index + 1).toDouble())
+            row.createCell(1).setCellValue(result.rosterNumber ?: result.ocrNumber ?: "-")
+            row.createCell(2).setCellValue(result.rosterName ?: result.ocrName ?: "-")
+            row.createCell(3).setCellValue(result.correctCount.toDouble())
+            row.createCell(4).setCellValue(result.wrongCount.toDouble())
+            row.createCell(5).setCellValue(result.emptyCount.toDouble())
+            row.createCell(6).setCellValue(result.totalScore)
+            allScores.add(result.totalScore)
+        }
+
+        val summaryStart = sorted.size + 2
+        val avg = if (allScores.isNotEmpty()) allScores.average() else 0.0
+        val highest = allScores.maxOrNull() ?: 0.0
+        val lowest = allScores.minOrNull() ?: 0.0
+        val stdDev = if (allScores.size > 1) {
+            val mean = avg
+            kotlin.math.sqrt(allScores.map { (it - mean) * (it - mean) }.average())
+        } else 0.0
+
+        listOf(
+            "Sınıf Ortalaması" to String.format("%.2f", avg),
+            "En Yüksek Puan" to String.format("%.2f", highest),
+            "En Düşük Puan" to String.format("%.2f", lowest),
+            "Standart Sapma" to String.format("%.2f", stdDev),
+            "Öğrenci Sayısı" to "${sorted.size}"
+        ).forEachIndexed { i, (label, value) ->
+            val row = sheet.createRow(summaryStart + i)
+            row.createCell(2).setCellValue(label)
+            row.createCell(6).setCellValue(value)
+        }
+
+        val widths = intArrayOf(1800, 4500, 7000, 2200, 2200, 2200, 2600)
+        widths.forEachIndexed { i, w -> sheet.setColumnWidth(i, w) }
+    }
+
+    private fun writeClassroomAnalysisSheet(
+        workbook: HSSFWorkbook,
+        results: List<ClassExamResultView>,
+        correctAnswers: List<Int>,
+        questionCount: Int
+    ) {
+        val sheet = workbook.createSheet("Soru Analizi")
+        val totalStudents = results.size.coerceAtLeast(1)
+
+        val qaHeader = sheet.createRow(0)
+        listOf("Soru", "Doğru Cvp", "Doğru %", "A %", "B %", "C %", "D %", "E %", "Boş %")
+            .forEachIndexed { i, t -> qaHeader.createCell(i).setCellValue(t) }
+
+        val questionStats = Array(questionCount) { IntArray(7) }
+
+        results.forEach { result ->
+            val answerMap = parseClassAnswerMap(result.answersJson)
+            for (q in 1..questionCount) {
+                val marked = answerMap[q]
+                if (marked == null) {
+                    questionStats[q - 1][5]++
+                } else {
+                    if (marked in 0..4) questionStats[q - 1][marked]++
+                    val correct = correctAnswers.getOrNull(q - 1)
+                    if (correct != null && marked == correct) questionStats[q - 1][6]++
+                }
+            }
+        }
+
+        var mostCorrectQ = 0; var maxCorrectPct = 0.0
+        var mostWrongQ = 0; var maxWrongPct = 0.0
+        var mostEmptyQ = 0; var maxEmptyPct = 0.0
+
+        for (q in 0 until questionCount) {
+            val row = sheet.createRow(q + 1)
+            val total = totalStudents.toDouble()
+            val correctPct = questionStats[q][6] * 100.0 / total
+            val emptyPct = questionStats[q][5] * 100.0 / total
+            val wrongPct = 100.0 - correctPct - emptyPct
+
+            row.createCell(0).setCellValue("Soru ${q + 1}")
+            val correct = correctAnswers.getOrNull(q)
+            row.createCell(1).setCellValue(if (correct != null) answerLabel(correct) else "-")
+            row.createCell(2).setCellValue(String.format("%.1f", correctPct))
+            for (opt in 0..4) {
+                row.createCell(3 + opt).setCellValue(
+                    String.format("%.1f", questionStats[q][opt] * 100.0 / total)
+                )
+            }
+            row.createCell(8).setCellValue(String.format("%.1f", emptyPct))
+
+            if (correctPct > maxCorrectPct) { maxCorrectPct = correctPct; mostCorrectQ = q }
+            if (wrongPct > maxWrongPct) { maxWrongPct = wrongPct; mostWrongQ = q }
+            if (emptyPct > maxEmptyPct) { maxEmptyPct = emptyPct; mostEmptyQ = q }
+        }
+
+        val s1 = sheet.createRow(questionCount + 2)
+        s1.createCell(0).setCellValue("EN ÇOK DOĞRU")
+        s1.createCell(1).setCellValue("Soru ${mostCorrectQ + 1} (${String.format("%.1f", maxCorrectPct)}%)")
+        val s2 = sheet.createRow(questionCount + 3)
+        s2.createCell(0).setCellValue("EN ÇOK YANLIŞ")
+        s2.createCell(1).setCellValue("Soru ${mostWrongQ + 1} (${String.format("%.1f", maxWrongPct)}%)")
+        val s3 = sheet.createRow(questionCount + 4)
+        s3.createCell(0).setCellValue("EN ÇOK BOŞ")
+        s3.createCell(1).setCellValue("Soru ${mostEmptyQ + 1} (${String.format("%.1f", maxEmptyPct)}%)")
+    }
+
+    private fun writeClassroomDetailSheet(
+        workbook: HSSFWorkbook,
+        results: List<ClassExamResultView>,
+        correctAnswers: List<Int>,
+        questionCount: Int
+    ) {
+        val sheet = workbook.createSheet("Detay Matris")
+
+        val correctStyle = workbook.createCellStyle().apply {
+            fillForegroundColor = IndexedColors.LIGHT_GREEN.index
+            fillPattern = FillPatternType.SOLID_FOREGROUND.code
+        }
+        val wrongStyle = workbook.createCellStyle().apply {
+            fillForegroundColor = IndexedColors.ROSE.index
+            fillPattern = FillPatternType.SOLID_FOREGROUND.code
+        }
+
+        val matrixHeader = sheet.createRow(0)
+        matrixHeader.createCell(0).setCellValue("Öğrenci")
+        matrixHeader.createCell(1).setCellValue("Numara")
+        for (q in 0 until questionCount) {
+            matrixHeader.createCell(q + 2).setCellValue("S${q + 1}")
+        }
+        matrixHeader.createCell(questionCount + 2).setCellValue("Puan")
+
+        results.sortedByDescending { it.totalScore }.forEachIndexed { index, result ->
+            val row = sheet.createRow(index + 1)
+            row.createCell(0).setCellValue(result.rosterName ?: result.ocrName ?: "-")
+            row.createCell(1).setCellValue(result.rosterNumber ?: result.ocrNumber ?: "-")
+
+            val answerMap = parseClassAnswerMap(result.answersJson)
+            for (q in 1..questionCount) {
+                val cell = row.createCell(q + 1)
+                val marked = answerMap[q]
+                val correct = correctAnswers.getOrNull(q - 1)
+                if (marked != null) {
+                    cell.setCellValue(answerLabel(marked))
+                    cell.setCellStyle(if (correct != null && marked == correct) correctStyle else wrongStyle)
+                } else {
+                    cell.setCellValue("-")
+                }
+            }
+            row.createCell(questionCount + 2).setCellValue(result.totalScore)
+        }
+
+        sheet.setColumnWidth(0, 7000)
+        sheet.setColumnWidth(1, 4200)
+        for (q in 0 until questionCount) {
+            sheet.setColumnWidth(q + 2, 1150)
+        }
+        sheet.setColumnWidth(questionCount + 2, 2600)
+    }
+
+    private fun parseClassAnswerMap(answersJson: String): Map<Int, Int?> {
+        return try {
+            val listType = object : TypeToken<List<Map<String, Any?>>>() {}.type
+            val rows: List<Map<String, Any?>> = Gson().fromJson(answersJson, listType)
+            rows.mapNotNull { row ->
+                val question = (row["q"] as? Number)?.toInt() ?: 0
+                val marked = (row["marked"] as? Number)?.toInt()
+                if (question <= 0) null else question to marked
+            }.toMap()
+        } catch (_: Exception) {
+            emptyMap()
+        }
     }
 }

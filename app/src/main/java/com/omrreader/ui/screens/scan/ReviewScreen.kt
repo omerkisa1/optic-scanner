@@ -51,6 +51,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.omrreader.data.db.entity.ClassroomEntity
+import com.omrreader.ui.screens.classroom.ClassroomAssignState
+import com.omrreader.ui.screens.classroom.ClassroomViewModel
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -77,6 +81,11 @@ fun ReviewScreen(
     var showPaperDialog by remember { mutableStateOf(false) }
     var showDebugDialog by remember { mutableStateOf(false) }
     var showLogDialog by remember { mutableStateOf(false) }
+    var showClassroomPicker by remember { mutableStateOf(false) }
+
+    val classroomViewModel: ClassroomViewModel = hiltViewModel()
+    val classrooms by classroomViewModel.classrooms.collectAsState(initial = emptyList())
+    val assignState by classroomViewModel.assignState.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.consumeReviewNavigation()
@@ -338,6 +347,18 @@ fun ReviewScreen(
                     Text("İptal")
                 }
             }
+
+            if (classrooms.isNotEmpty()) {
+                OutlinedButton(
+                    onClick = { showClassroomPicker = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    enabled = !isSaving
+                ) {
+                    Text("Sınıfa Aktar")
+                }
+            }
         }
 
         if (isSaving) {
@@ -541,6 +562,100 @@ fun ReviewScreen(
             }
         }
     }
+
+    if (showClassroomPicker) {
+        ClassroomPickerDialog(
+            classrooms = classrooms,
+            onSelect = { classroom ->
+                showClassroomPicker = false
+                isSaving = true
+                viewModel.saveConfirmedResult(
+                    studentName = studentName,
+                    studentNumber = studentNumber,
+                    className = className
+                ) { success, message ->
+                    if (success) {
+                        val lastResultId = 0L
+                        classroomViewModel.matchAndAssignResult(
+                            classroomId = classroom.id,
+                            examId = viewModel.activeExamId.value ?: 0L,
+                            resultId = lastResultId,
+                            ocrNumber = studentNumber,
+                            ocrName = studentName
+                        )
+                    }
+                    isSaving = false
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar(
+                            if (success) "Sınıfa aktarıldı" else message
+                        )
+                    }
+                }
+            },
+            onDismiss = { showClassroomPicker = false }
+        )
+    }
+
+    if (assignState !is ClassroomAssignState.Idle) {
+        AlertDialog(
+            onDismissRequest = { classroomViewModel.resetAssignState() },
+            title = { Text("Eşleştirme Sonucu") },
+            text = {
+                when (val state = assignState) {
+                    is ClassroomAssignState.Matched -> {
+                        Text("Eşleşme bulundu: ${state.studentName} (${state.studentNumber})")
+                    }
+                    is ClassroomAssignState.NotMatched -> {
+                        Text("Eşleşme bulunamadı. Sonuç yine de sınıfa eklendi.")
+                    }
+                    else -> {}
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { classroomViewModel.resetAssignState() }) {
+                    Text("Tamam")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun ClassroomPickerDialog(
+    classrooms: List<ClassroomEntity>,
+    onSelect: (ClassroomEntity) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sınıf Seçin") },
+        text = {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(classrooms) { classroom ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(classroom) }
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(classroom.courseName, fontWeight = FontWeight.Medium)
+                            Text(
+                                "${classroom.gradeLevel} ${classroom.section} - ${classroom.educationType}",
+                                color = Color.Gray,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("İptal") }
+        }
+    )
 }
 
 @Composable

@@ -31,7 +31,7 @@ data class OCRResult(
 class OCRProcessor @Inject constructor() {
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private val trLocale = Locale("tr", "TR")
-    private val minTargetWidth = 1000.0
+    private val minTargetWidth = 2000.0
 
     suspend fun recognize(bitmap: Bitmap, region: android.graphics.Rect, regionName: String): OCRResult {
         return try {

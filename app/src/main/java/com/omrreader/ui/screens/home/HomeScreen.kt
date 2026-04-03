@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -24,9 +25,12 @@ fun HomeScreen(
     onNavigateToCreate: () -> Unit,
     onNavigateToDetail: (Long) -> Unit,
     onNavigateToScan: (Long) -> Unit,
+    onNavigateToCreateClassroom: () -> Unit = {},
+    onNavigateToClassroomDetail: (Long) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val exams by viewModel.exams.collectAsState()
+    val classrooms by viewModel.classrooms.collectAsState()
 
     LaunchedEffect(Unit) { viewModel.loadExams() }
 
@@ -49,21 +53,71 @@ fun HomeScreen(
             }
         }
     ) { padding ->
-        if (exams.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "Henüz sınav eklenmedi.\nYeni bir sınav oluşturmak için + butonuna basın.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (classrooms.isNotEmpty() || exams.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Sınıflarım", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        TextButton(onClick = onNavigateToCreateClassroom) {
+                            Text("+ Yeni Sınıf")
+                        }
+                    }
+                }
+
+                if (classrooms.isEmpty()) {
+                    item {
+                        Text(
+                            "Henüz sınıf eklenmedi.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                } else {
+                    items(classrooms) { classroom ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onNavigateToClassroomDetail(classroom.id) },
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(classroom.courseName, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "${classroom.gradeLevel} ${classroom.section} - ${classroom.educationType}",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Sınavlarım", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+
+            if (exams.isEmpty()) {
+                item {
+                    Text(
+                        text = "Henüz sınav eklenmedi.\nYeni bir sınav oluşturmak için + butonuna basın.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(vertical = 32.dp)
+                    )
+                }
+            } else {
                 items(exams) { item ->
                     ExamCard(
                         item = item,

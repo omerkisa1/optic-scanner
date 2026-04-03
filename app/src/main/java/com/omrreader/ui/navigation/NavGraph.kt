@@ -7,6 +7,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.omrreader.ui.screens.classroom.ClassroomDetailScreen
+import com.omrreader.ui.screens.classroom.CreateClassroomScreen
+import com.omrreader.ui.screens.classroom.StudentRosterScreen
 import com.omrreader.ui.screens.exam.AnswerKeyScreen
 import com.omrreader.ui.screens.exam.CreateExamScreen
 import com.omrreader.ui.screens.export.ExportScreen
@@ -29,7 +32,9 @@ fun RootNavGraph() {
             HomeScreen(
                 onNavigateToCreate = { navController.navigate(Screen.CreateExam.route) },
                 onNavigateToDetail = { examId -> navController.navigate(Screen.ExamDetail.createRoute(examId)) },
-                onNavigateToScan = { examId -> navController.navigate(Screen.Scan.createRoute(examId)) }
+                onNavigateToScan = { examId -> navController.navigate(Screen.Scan.createRoute(examId)) },
+                onNavigateToCreateClassroom = { navController.navigate(Screen.CreateClassroom.route) },
+                onNavigateToClassroomDetail = { classroomId -> navController.navigate(Screen.ClassroomDetail.createRoute(classroomId)) }
             )
         }
 
@@ -118,6 +123,44 @@ fun RootNavGraph() {
             ExportScreen(
                 examId = examId,
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.CreateClassroom.route) {
+            CreateClassroomScreen(
+                onClassroomCreated = { id ->
+                    navController.navigate(Screen.StudentRoster.createRoute(id))
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Screen.StudentRoster.route,
+            arguments = listOf(navArgument("classroomId") { type = NavType.LongType })
+        ) { backStackEntry ->
+            val classroomId = backStackEntry.arguments?.getLong("classroomId") ?: return@composable
+            StudentRosterScreen(
+                classroomId = classroomId,
+                onDone = {
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.Home.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        composable(
+            route = Screen.ClassroomDetail.route,
+            arguments = listOf(navArgument("classroomId") { type = NavType.LongType })
+        ) { backStackEntry ->
+            val classroomId = backStackEntry.arguments?.getLong("classroomId") ?: return@composable
+            ClassroomDetailScreen(
+                classroomId = classroomId,
+                onBack = { navController.popBackStack() },
+                onOpenRoster = { id ->
+                    navController.navigate(Screen.StudentRoster.createRoute(id))
+                }
             )
         }
     }

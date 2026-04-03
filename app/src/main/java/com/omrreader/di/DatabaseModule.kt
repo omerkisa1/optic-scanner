@@ -4,7 +4,10 @@ import android.content.Context
 import androidx.room.Room
 import com.omrreader.data.db.AppDatabase
 import com.omrreader.data.db.dao.AnswerKeyDao
+import com.omrreader.data.db.dao.ClassroomDao
+import com.omrreader.data.db.dao.ClassroomExamResultDao
 import com.omrreader.data.db.dao.ExamDao
+import com.omrreader.data.db.dao.RosterStudentDao
 import com.omrreader.data.db.dao.StudentResultDao
 import dagger.Module
 import dagger.Provides
@@ -24,7 +27,10 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "omr_database"
-        ).fallbackToDestructiveMigration().build()
+        )
+            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .fallbackToDestructiveMigration()
+            .build()
     }
 
     @Provides
@@ -35,4 +41,13 @@ object DatabaseModule {
 
     @Provides
     fun provideStudentResultDao(database: AppDatabase): StudentResultDao = database.studentResultDao()
+
+    @Provides
+    fun provideClassroomDao(database: AppDatabase): ClassroomDao = database.classroomDao()
+
+    @Provides
+    fun provideRosterStudentDao(database: AppDatabase): RosterStudentDao = database.rosterStudentDao()
+
+    @Provides
+    fun provideClassroomExamResultDao(database: AppDatabase): ClassroomExamResultDao = database.classroomExamResultDao()
 }

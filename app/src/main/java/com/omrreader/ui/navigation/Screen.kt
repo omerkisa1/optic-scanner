@@ -19,4 +19,11 @@ sealed class Screen(val route: String) {
     object Export : Screen("export/{examId}") {
         fun createRoute(examId: Long) = "export/$examId"
     }
+    object CreateClassroom : Screen("create_classroom")
+    object StudentRoster : Screen("student_roster/{classroomId}") {
+        fun createRoute(classroomId: Long) = "student_roster/$classroomId"
+    }
+    object ClassroomDetail : Screen("classroom_detail/{classroomId}") {
+        fun createRoute(classroomId: Long) = "classroom_detail/$classroomId"
+    }
 }
