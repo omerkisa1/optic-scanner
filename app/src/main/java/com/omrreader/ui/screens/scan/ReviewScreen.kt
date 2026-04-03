@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -101,6 +102,10 @@ fun ReviewScreen(
     var studentNumber by remember(result.studentNumber) { mutableStateOf(result.studentNumber) }
     var className by remember(result.className) { mutableStateOf(result.className) }
 
+    val nameConfidence = result.ocrConfidence["name"] ?: 0f
+    val numberConfidence = result.ocrConfidence["number"] ?: 0f
+    val classConfidence = result.ocrConfidence["class"] ?: 0f
+
     val effectiveAnswers = viewModel.getEffectiveAnswers()
     val correctAnswers = viewModel.getCorrectAnswers()
     val score = viewModel.getEffectiveScore() ?: result.scoreResult
@@ -128,16 +133,19 @@ fun ReviewScreen(
             EditableFieldWithConfidence(
                 label = "Ad Soyad",
                 value = studentName,
+                confidence = nameConfidence,
                 onValueChange = { studentName = it }
             )
             EditableFieldWithConfidence(
                 label = "Numara",
                 value = studentNumber,
+                confidence = numberConfidence,
                 onValueChange = { studentNumber = it }
             )
             EditableFieldWithConfidence(
                 label = "Sınıf",
                 value = className,
+                confidence = classConfidence,
                 onValueChange = { className = it }
             )
 
@@ -325,12 +333,13 @@ fun ReviewScreen(
 private fun EditableFieldWithConfidence(
     label: String,
     value: String,
+    confidence: Float,
     onValueChange: (String) -> Unit
 ) {
-    val confidenceColor = when {
-        value.isBlank() -> Color(0xFFC62828)
-        value.length < 3 -> Color(0xFFF9A825)
-        else -> Color(0xFF2E7D32)
+    val (confidenceColor, confidenceIcon, confidenceLabel) = when {
+        confidence > 0.8f -> Triple(Color(0xFF2E7D32), "✓", "Güvenli")
+        confidence >= 0.5f -> Triple(Color(0xFFF9A825), "⚠", "Kontrol edin")
+        else -> Triple(Color(0xFFC62828), "✗", "Muhtemelen yanlış")
     }
 
     Row(
@@ -348,12 +357,22 @@ private fun EditableFieldWithConfidence(
             singleLine = true
         )
 
-        Box(
-            modifier = Modifier
-                .background(confidenceColor, shape = MaterialTheme.shapes.small)
-                .padding(horizontal = 10.dp, vertical = 6.dp)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text("●", color = Color.White)
+            Box(
+                modifier = Modifier
+                    .background(confidenceColor, shape = CircleShape)
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(confidenceIcon, color = Color.White, fontWeight = FontWeight.Bold)
+            }
+            Text(
+                text = confidenceLabel,
+                color = confidenceColor,
+                style = MaterialTheme.typography.labelSmall
+            )
         }
     }
 }

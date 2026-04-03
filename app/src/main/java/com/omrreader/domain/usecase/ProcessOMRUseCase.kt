@@ -132,6 +132,16 @@ class ProcessOMRUseCase @Inject constructor(
                 studentName = nameResult.processedText,
                 studentNumber = numberResult.processedText,
                 className = classResult.processedText,
+                ocrConfidence = mapOf(
+                    "name" to nameResult.confidence,
+                    "number" to numberResult.confidence,
+                    "class" to classResult.confidence
+                ),
+                ocrCandidates = mapOf(
+                    "name" to nameResult.allCandidates,
+                    "number" to numberResult.allCandidates,
+                    "class" to classResult.allCandidates
+                ),
                 omrResults = normalizedOmrResults,
                 scoreResult = scoreResult,
                 answerKey = answerKey,

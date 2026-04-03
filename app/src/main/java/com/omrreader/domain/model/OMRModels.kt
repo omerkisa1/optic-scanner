@@ -34,6 +34,8 @@ sealed class ProcessResult {
         val studentName: String,
         val studentNumber: String,
         val className: String,
+        val ocrConfidence: Map<String, Float> = emptyMap(),
+        val ocrCandidates: Map<String, List<String>> = emptyMap(),
         val omrResults: List<QuestionResult>,
         val scoreResult: ScoreResult,
         val answerKey: OMRAnswerKeyResponse?,
