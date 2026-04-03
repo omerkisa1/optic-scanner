@@ -1,5 +1,6 @@
 package com.omrreader.ui.screens.classroom
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.omrreader.data.db.dao.ClassExamResultView
@@ -9,12 +10,15 @@ import com.omrreader.data.db.dao.RosterStudentDao
 import com.omrreader.data.db.entity.ClassroomEntity
 import com.omrreader.data.db.entity.ClassroomExamResultEntity
 import com.omrreader.data.db.entity.RosterStudentEntity
+import com.omrreader.data.repository.ExamRepository
+import com.omrreader.export.ExcelExporter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
 
 sealed class ClassroomAssignState {
@@ -28,7 +32,9 @@ sealed class ClassroomAssignState {
 class ClassroomViewModel @Inject constructor(
     private val classroomDao: ClassroomDao,
     private val rosterStudentDao: RosterStudentDao,
-    private val classroomExamResultDao: ClassroomExamResultDao
+    private val classroomExamResultDao: ClassroomExamResultDao,
+    private val examRepository: ExamRepository,
+    private val excelExporter: ExcelExporter
 ) : ViewModel() {
 
     val classrooms: Flow<List<ClassroomEntity>> = classroomDao.getAllClassrooms()
@@ -129,6 +135,37 @@ class ClassroomViewModel @Inject constructor(
             } else {
                 ClassroomAssignState.NotMatched
             }
+        }
+    }
+
+    fun exportClassroomExcel(
+        context: Context,
+        classroomId: Long,
+        results: List<ClassExamResultView>,
+        onComplete: (File?) -> Unit
+    ) {
+        viewModelScope.launch {
+            val classroom = classroomDao.getClassroom(classroomId)
+            if (classroom == null) {
+                onComplete(null)
+                return@launch
+            }
+
+            val examId = results.firstOrNull()?.examId
+            val correctAnswers = if (examId != null) {
+                val exam = examRepository.getExamById(examId)
+                excelExporter.parseCorrectAnswersFromQr(exam?.qrData)
+            } else {
+                emptyList()
+            }
+
+            val file = excelExporter.exportClassroomReport(
+                context = context,
+                classroom = classroom,
+                results = results,
+                correctAnswers = correctAnswers
+            )
+            onComplete(file)
         }
     }
 

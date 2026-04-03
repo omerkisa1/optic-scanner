@@ -308,7 +308,7 @@ fun ReviewScreen(
                             studentName = studentName,
                             studentNumber = studentNumber,
                             className = className
-                        ) { success, message ->
+                        ) { success, message, _ ->
                             isSaving = false
                             if (success) {
                                 onConfirmSaved()
@@ -573,13 +573,12 @@ fun ReviewScreen(
                     studentName = studentName,
                     studentNumber = studentNumber,
                     className = className
-                ) { success, message ->
+                ) { success, message, savedResultId ->
                     if (success) {
-                        val lastResultId = 0L
                         classroomViewModel.matchAndAssignResult(
                             classroomId = classroom.id,
                             examId = viewModel.activeExamId.value ?: 0L,
-                            resultId = lastResultId,
+                            resultId = savedResultId,
                             ocrNumber = studentNumber,
                             ocrName = studentName
                         )

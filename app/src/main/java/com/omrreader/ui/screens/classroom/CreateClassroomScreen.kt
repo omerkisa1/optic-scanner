@@ -1,7 +1,6 @@
 package com.omrreader.ui.screens.classroom
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,7 +10,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -23,9 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,7 +34,7 @@ fun CreateClassroomScreen(
     var courseName by remember { mutableStateOf("") }
     var gradeLevel by remember { mutableStateOf("") }
     var section by remember { mutableStateOf("") }
-    var educationType by remember { mutableStateOf("1. Öğretim") }
+    var educationType by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -70,8 +66,18 @@ fun CreateClassroomScreen(
             OutlinedTextField(
                 value = gradeLevel,
                 onValueChange = { gradeLevel = it },
-                label = { Text("Sınıf") },
+                label = { Text("Öğrenim Yılı") },
                 placeholder = { Text("Örn: 3. Sınıf") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = educationType,
+                onValueChange = { educationType = it },
+                label = { Text("Öğrenim Türü") },
+                placeholder = { Text("Örn: Gece Grubu") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -85,19 +91,6 @@ fun CreateClassroomScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text("Öğretim", fontWeight = FontWeight.Medium, fontSize = 14.sp)
-            Row(modifier = Modifier.padding(vertical = 8.dp)) {
-                listOf("1. Öğretim", "2. Öğretim").forEach { type ->
-                    FilterChip(
-                        selected = educationType == type,
-                        onClick = { educationType = type },
-                        label = { Text(type) },
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
-                }
-            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -107,12 +100,12 @@ fun CreateClassroomScreen(
                         onClassroomCreated(id)
                     }
                 },
-                enabled = courseName.isNotBlank() && gradeLevel.isNotBlank() && section.isNotBlank(),
+                enabled = courseName.isNotBlank() && gradeLevel.isNotBlank() && section.isNotBlank() && educationType.isNotBlank(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
             ) {
-                Text("Oluştur ve Öğrenci Listesi Ekle")
+                Text("Sınıfı Oluştur")
             }
         }
     }

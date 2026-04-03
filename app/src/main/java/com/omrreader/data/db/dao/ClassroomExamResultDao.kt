@@ -11,6 +11,7 @@ data class ClassExamResultView(
     val id: Long,
     val classroomId: Long,
     val resultId: Long,
+    val examId: Long,
     val rosterStudentId: Long?,
     val rosterName: String?,
     val rosterNumber: String?,
@@ -26,7 +27,8 @@ data class ClassExamResultView(
 @Dao
 interface ClassroomExamResultDao {
     @Query("""
-        SELECT cer.id, cer.classroomId, cer.resultId, cer.rosterStudentId,
+        SELECT cer.id, cer.classroomId, cer.resultId, cer.examId,
+               cer.rosterStudentId,
                rs.studentName as rosterName, rs.studentNumber as rosterNumber,
                sr.totalScore, sr.correctCount, sr.wrongCount, sr.emptyCount,
                sr.studentName as ocrName, sr.studentNumber as ocrNumber, sr.answersJson
@@ -39,7 +41,8 @@ interface ClassroomExamResultDao {
     fun getResultsForClassExam(classroomId: Long, examId: Long): Flow<List<ClassExamResultView>>
 
     @Query("""
-        SELECT cer.id, cer.classroomId, cer.resultId, cer.rosterStudentId,
+        SELECT cer.id, cer.classroomId, cer.resultId, cer.examId,
+               cer.rosterStudentId,
                rs.studentName as rosterName, rs.studentNumber as rosterNumber,
                sr.totalScore, sr.correctCount, sr.wrongCount, sr.emptyCount,
                sr.studentName as ocrName, sr.studentNumber as ocrNumber, sr.answersJson

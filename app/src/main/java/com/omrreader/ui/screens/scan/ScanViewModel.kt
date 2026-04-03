@@ -130,20 +130,20 @@ class ScanViewModel @Inject constructor(
         studentName: String,
         studentNumber: String,
         className: String,
-        onCompleted: (Boolean, String) -> Unit
+        onCompleted: (Boolean, String, Long) -> Unit
     ) {
         val examId = _activeExamId.value
         val current = _reviewResult.value
 
         if (examId == null || current == null) {
-            onCompleted(false, "Tarama sonucu bulunamadı.")
+            onCompleted(false, "Tarama sonucu bulunamadı.", 0L)
             return
         }
 
         viewModelScope.launch {
             val exam = examRepository.getExamById(examId)
             if (exam == null) {
-                onCompleted(false, "Sınav bilgisi bulunamadı.")
+                onCompleted(false, "Sınav bilgisi bulunamadı.", 0L)
                 return@launch
             }
 
@@ -172,8 +172,8 @@ class ScanViewModel @Inject constructor(
                 isConfirmed = true
             )
 
-            resultRepository.saveResult(entity)
-            onCompleted(true, "Sonuç kaydedildi.")
+            val savedId = resultRepository.saveResult(entity)
+            onCompleted(true, "Sonuç kaydedildi.", savedId)
             resetReviewSession()
         }
     }
