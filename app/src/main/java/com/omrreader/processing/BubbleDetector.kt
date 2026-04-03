@@ -6,6 +6,7 @@ import com.omrreader.domain.model.BubbleState
 import com.omrreader.domain.model.QuestionResult
 import org.opencv.android.Utils
 import org.opencv.core.Core
+import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
@@ -23,8 +24,10 @@ import kotlin.math.min
 class BubbleDetector @Inject constructor() {
     companion object {
         private const val TAG = "BubbleDetector"
-        private const val EMPTY_THRESHOLD = 0.35
-        private const val FILLED_THRESHOLD = 0.85
+        private const val EMPTY_THRESHOLD = 0.25
+        private const val MARKED_THRESHOLD = 0.25
+        private const val FILLED_THRESHOLD = 0.75
+        private const val RELATIVE_DOMINANCE_RATIO = 1.5
     }
 
     fun detect(bitmap: Bitmap, grids: List<ResolvedGridRegion>): List<QuestionResult> {
@@ -32,24 +35,7 @@ class BubbleDetector @Inject constructor() {
 
         val mat = Mat()
         Utils.bitmapToMat(bitmap, mat)
-
-        val gray = Mat()
-        if (mat.channels() == 4) {
-            Imgproc.cvtColor(mat, gray, Imgproc.COLOR_RGBA2GRAY)
-        } else {
-            Imgproc.cvtColor(mat, gray, Imgproc.COLOR_BGR2GRAY)
-        }
-
-        val binary = Mat()
-        Imgproc.adaptiveThreshold(
-            gray,
-            binary,
-            255.0,
-            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-            Imgproc.THRESH_BINARY_INV,
-            31,
-            8.0
-        )
+        val binary = preprocessForCamera(mat)
 
         val contourInput = binary.clone()
         val allContours = mutableListOf<MatOfPoint>()
@@ -94,6 +80,37 @@ class BubbleDetector @Inject constructor() {
         }
 
         return results
+    }
+
+    private fun preprocessForCamera(input: Mat): Mat {
+        val gray = Mat()
+        if (input.channels() == 4) {
+            Imgproc.cvtColor(input, gray, Imgproc.COLOR_RGBA2GRAY)
+        } else {
+            Imgproc.cvtColor(input, gray, Imgproc.COLOR_BGR2GRAY)
+        }
+
+        val clahe = Imgproc.createCLAHE(2.0, org.opencv.core.Size(8.0, 8.0))
+        val enhanced = Mat()
+        clahe.apply(gray, enhanced)
+
+        val denoised = Mat()
+        Imgproc.bilateralFilter(enhanced, denoised, 9, 75.0, 75.0)
+
+        val binary = Mat()
+        Imgproc.adaptiveThreshold(
+            denoised,
+            binary,
+            255.0,
+            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+            Imgproc.THRESH_BINARY_INV,
+            15,
+            4.0
+        )
+
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(3.0, 3.0))
+        Imgproc.morphologyEx(binary, binary, Imgproc.MORPH_CLOSE, kernel)
+        return binary
     }
 
     private fun detectGridBubbleCandidates(
@@ -201,7 +218,7 @@ class BubbleDetector @Inject constructor() {
         val safeRect = Rect(left, top, width, height)
 
         val bubbleRoi = Mat(binary, safeRect)
-        val mask = Mat.zeros(height, width, org.opencv.core.CvType.CV_8UC1)
+        val mask = Mat.zeros(height, width, CvType.CV_8UC1)
         val radius = ((min(width, height) * 0.42) - 1.0).coerceAtLeast(1.0)
         Imgproc.circle(mask, Point(width / 2.0, height / 2.0), radius.toInt(), Scalar(255.0), -1)
 
@@ -217,85 +234,126 @@ class BubbleDetector @Inject constructor() {
         questionNumber: Int,
         fillRatios: List<Double>
     ): QuestionResult {
+        if (fillRatios.isEmpty()) {
+            return QuestionResult(
+                questionNumber = questionNumber,
+                bubbleStates = emptyList(),
+                selectedAnswer = null,
+                fillRatios = emptyList(),
+                isValid = false
+            )
+        }
+
         val states = fillRatios.map { ratio ->
             when {
                 ratio > FILLED_THRESHOLD -> BubbleState.FILLED
-                ratio > EMPTY_THRESHOLD -> BubbleState.MARKED
+                ratio > MARKED_THRESHOLD -> BubbleState.MARKED
                 else -> BubbleState.EMPTY
             }
         }
 
         val markedIndices = states.indices.filter { states[it] == BubbleState.MARKED }
         val filledIndices = states.indices.filter { states[it] == BubbleState.FILLED }
+        val result: QuestionResult
+        val status: String
 
-        val result = when {
+        when {
             markedIndices.isEmpty() && filledIndices.isEmpty() -> {
-                QuestionResult(
+                result = QuestionResult(
                     questionNumber = questionNumber,
                     bubbleStates = states,
                     selectedAnswer = null,
                     fillRatios = fillRatios,
                     isValid = true
                 )
-            }
-
-            markedIndices.size == 1 -> {
-                QuestionResult(
-                    questionNumber = questionNumber,
-                    bubbleStates = states,
-                    selectedAnswer = markedIndices[0],
-                    fillRatios = fillRatios,
-                    isValid = true
-                )
-            }
-
-            markedIndices.size > 1 && filledIndices.isEmpty() -> {
-                QuestionResult(
-                    questionNumber = questionNumber,
-                    bubbleStates = states,
-                    selectedAnswer = null,
-                    fillRatios = fillRatios,
-                    isValid = false
-                )
-            }
-
-            filledIndices.isNotEmpty() && markedIndices.size == 1 -> {
-                QuestionResult(
-                    questionNumber = questionNumber,
-                    bubbleStates = states,
-                    selectedAnswer = markedIndices[0],
-                    fillRatios = fillRatios,
-                    isValid = true
-                )
+                status = "EMPTY"
             }
 
             filledIndices.size == states.size -> {
-                QuestionResult(
+                result = QuestionResult(
                     questionNumber = questionNumber,
                     bubbleStates = states,
                     selectedAnswer = null,
                     fillRatios = fillRatios,
                     isValid = true
                 )
+                status = "ALL_CANCELLED"
+            }
+
+            filledIndices.isNotEmpty() && markedIndices.size == 1 -> {
+                result = QuestionResult(
+                    questionNumber = questionNumber,
+                    bubbleStates = states,
+                    selectedAnswer = markedIndices[0],
+                    fillRatios = fillRatios,
+                    isValid = true
+                )
+                status = "CORRECTED"
+            }
+
+            markedIndices.size == 1 -> {
+                result = QuestionResult(
+                    questionNumber = questionNumber,
+                    bubbleStates = states,
+                    selectedAnswer = markedIndices[0],
+                    fillRatios = fillRatios,
+                    isValid = true
+                )
+                status = "VALID"
             }
 
             else -> {
-                QuestionResult(
-                    questionNumber = questionNumber,
-                    bubbleStates = List(states.size) { BubbleState.AMBIGUOUS },
-                    selectedAnswer = null,
-                    fillRatios = fillRatios,
-                    isValid = false
-                )
+                val relative = determineAnswerRelative(fillRatios)
+                if (relative != null) {
+                    result = QuestionResult(
+                        questionNumber = questionNumber,
+                        bubbleStates = states,
+                        selectedAnswer = relative,
+                        fillRatios = fillRatios,
+                        isValid = true
+                    )
+                    status = "VALID_RELATIVE"
+                } else {
+                    val sorted = fillRatios.sortedDescending()
+                    val strongest = sorted.getOrElse(0) { 0.0 }
+                    val second = sorted.getOrElse(1) { 0.0 }
+                    val isMultiple = strongest > MARKED_THRESHOLD && second > MARKED_THRESHOLD
+
+                    result = QuestionResult(
+                        questionNumber = questionNumber,
+                        bubbleStates = if (isMultiple) states else List(states.size) { BubbleState.EMPTY },
+                        selectedAnswer = null,
+                        fillRatios = fillRatios,
+                        isValid = !isMultiple
+                    )
+                    status = if (isMultiple) "MULTIPLE" else "EMPTY"
+                }
             }
         }
 
         Log.d(
             TAG,
-            "q=$questionNumber selected=${result.selectedAnswer} valid=${result.isValid} states=${result.bubbleStates.joinToString()}"
+            "q=$questionNumber status=$status selected=${result.selectedAnswer} valid=${result.isValid} states=${result.bubbleStates.joinToString()}"
         )
 
         return result
+    }
+
+    private fun determineAnswerRelative(fillRatios: List<Double>): Int? {
+        if (fillRatios.isEmpty()) return null
+        if (fillRatios.size == 1) {
+            return if (fillRatios[0] > MARKED_THRESHOLD) 0 else null
+        }
+
+        val sorted = fillRatios.withIndex().sortedByDescending { it.value }
+        val highest = sorted[0]
+        val secondHighest = sorted[1]
+
+        if (highest.value > MARKED_THRESHOLD && highest.value > secondHighest.value * RELATIVE_DOMINANCE_RATIO) {
+            return highest.index
+        }
+
+        return null
     }
 
     private fun ambiguousRow(questionNumber: Int, optionCount: Int): QuestionResult {
