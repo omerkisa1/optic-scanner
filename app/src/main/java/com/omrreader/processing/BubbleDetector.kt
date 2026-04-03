@@ -28,12 +28,12 @@ class BubbleDetector @Inject constructor(
 ) {
     companion object {
         private const val TAG = "OMR"
-        private const val EMPTY_MAX = 0.15
-        private const val MARKED_MIN = 0.18
-        private const val HEAVY_MIN = 0.70
-        private const val VALID_RELATIVE_MIN = 1.8
-        private const val LIKELY_RELATIVE_MIN = 1.5
-        private const val LIKELY_ABSOLUTE_MIN = 0.30
+        private const val MEAN_EMPTY_RATIO_MAX = 1.5
+        private const val VALID_SECOND_RATIO_MIN = 1.5
+        private const val VALID_MEAN_MULTIPLIER = 1.5
+        private const val ABOVE_MEAN_MULTIPLIER = 1.4
+        private const val HIGH_MEAN_MULTIPLIER = 1.8
+        private const val MID_MEAN_MULTIPLIER = 1.3
     }
 
     fun detect(bitmap: Bitmap, grids: List<ResolvedGridRegion>): List<QuestionResult> {
@@ -244,20 +244,23 @@ class BubbleDetector @Inject constructor(
             )
         }
 
-        val states = fillRatios.map { value ->
-            when {
-                value >= HEAVY_MIN -> BubbleState.FILLED
-                value >= MARKED_MIN -> BubbleState.MARKED
-                else -> BubbleState.EMPTY
-            }
-        }
-
+        val meanFill = fillRatios.average().coerceAtLeast(0.0001)
         val maxFill = fillRatios.maxOrNull() ?: 0.0
         val maxIndex = fillRatios.indexOf(maxFill).coerceAtLeast(0)
         val sortedRatios = fillRatios.sortedDescending()
         val secondMaxFill = sortedRatios.getOrElse(1) { 0.0 }
+        val maxToMeanRatio = maxFill / meanFill
+        val maxToSecondRatio = if (secondMaxFill > 0.01) maxFill / secondMaxFill else 99.0
 
-        if (maxFill < EMPTY_MAX) {
+        val states = fillRatios.map { value ->
+            when {
+                value > meanFill * HIGH_MEAN_MULTIPLIER -> BubbleState.FILLED
+                value > meanFill * MID_MEAN_MULTIPLIER -> BubbleState.MARKED
+                else -> BubbleState.EMPTY
+            }
+        }
+
+        if (maxToMeanRatio < MEAN_EMPTY_RATIO_MAX) {
             return DetectionDecision(
                 questionResult = QuestionResult(
                     questionNumber = questionNumber,
@@ -270,8 +273,10 @@ class BubbleDetector @Inject constructor(
             )
         }
 
-        val dominanceRatio = if (secondMaxFill > 0.01) maxFill / secondMaxFill else 100.0
-        if (dominanceRatio >= VALID_RELATIVE_MIN && maxFill >= MARKED_MIN) {
+        if (
+            maxToSecondRatio >= VALID_SECOND_RATIO_MIN &&
+            maxFill > meanFill * VALID_MEAN_MULTIPLIER
+        ) {
             return DetectionDecision(
                 questionResult = QuestionResult(
                     questionNumber = questionNumber,
@@ -284,21 +289,24 @@ class BubbleDetector @Inject constructor(
             )
         }
 
-        val highFillCount = fillRatios.count { it >= MARKED_MIN }
-        if (highFillCount >= 2) {
-            val heavyMarks = fillRatios.indices.filter { fillRatios[it] > HEAVY_MIN }
-            val lightMarks = fillRatios.indices.filter { fillRatios[it] in MARKED_MIN..HEAVY_MIN }
+        val aboveMeanCount = fillRatios.count { it > meanFill * ABOVE_MEAN_MULTIPLIER }
+        if (aboveMeanCount >= 2) {
+            val highMarks = fillRatios.indices.filter { fillRatios[it] > meanFill * HIGH_MEAN_MULTIPLIER }
+            val midMarks = fillRatios.indices.filter {
+                fillRatios[it] > meanFill * MID_MEAN_MULTIPLIER &&
+                    fillRatios[it] <= meanFill * HIGH_MEAN_MULTIPLIER
+            }
 
-            if (heavyMarks.isNotEmpty() && lightMarks.size == 1) {
+            if (highMarks.size == 1 && midMarks.isEmpty()) {
                 return DetectionDecision(
                     questionResult = QuestionResult(
                         questionNumber = questionNumber,
                         bubbleStates = states,
-                        selectedAnswer = lightMarks[0],
+                        selectedAnswer = highMarks[0],
                         fillRatios = fillRatios,
                         isValid = true
                     ),
-                    status = "CORRECTED"
+                    status = "VALID"
                 )
             }
 
@@ -314,7 +322,7 @@ class BubbleDetector @Inject constructor(
             )
         }
 
-        if (maxFill >= LIKELY_ABSOLUTE_MIN && dominanceRatio >= LIKELY_RELATIVE_MIN) {
+        if (maxFill > meanFill * ABOVE_MEAN_MULTIPLIER) {
             return DetectionDecision(
                 questionResult = QuestionResult(
                     questionNumber = questionNumber,
@@ -333,9 +341,9 @@ class BubbleDetector @Inject constructor(
                 bubbleStates = states,
                 selectedAnswer = null,
                 fillRatios = fillRatios,
-                isValid = false
+                isValid = true
             ),
-            status = "AMBIGUOUS"
+            status = "EMPTY"
         )
     }
 
