@@ -23,9 +23,12 @@ import com.omrreader.processing.QRProcessor
 import com.omrreader.scoring.ScoringEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.opencv.android.Utils
+import org.opencv.core.Mat
 import java.io.File
 import java.io.FileOutputStream
 import javax.inject.Inject
+import kotlin.math.abs
 import kotlin.math.min
 
 class ProcessOMRUseCase @Inject constructor(
@@ -113,7 +116,23 @@ class ProcessOMRUseCase @Inject constructor(
             )
 
             val resolvedGrids = template.resolveGrids(correctedWidth, correctedHeight, subjectOverrides)
-            val bubbleOutput = bubbleDetector.detectWithDebug(corrected, template, resolvedGrids)
+
+            val pageMat = Mat()
+            Utils.bitmapToMat(corrected, pageMat)
+            val adjustedGrids = resolvedGrids.map { grid ->
+                val actualBounds = bubbleDetector.findGridBounds(pageMat, grid.region)
+                val dx = actualBounds.left - grid.region.left
+                val dy = actualBounds.top - grid.region.top
+                if (abs(dx) > 3 || abs(dy) > 3) {
+                    Log.d(TAG, "Grid offset applied: dx=$dx dy=$dy")
+                    grid.withOffset(dx, dy)
+                } else {
+                    grid
+                }
+            }
+            pageMat.release()
+
+            val bubbleOutput = bubbleDetector.detectWithDebug(corrected, template, adjustedGrids)
             val omrResults = bubbleOutput.results
 
             val correctAnswers = mutableListOf<Int>()
@@ -154,7 +173,7 @@ class ProcessOMRUseCase @Inject constructor(
 
             val correctedOverlayPath = createPaperEvaluationOverlay(
                 bitmap = corrected,
-                grids = resolvedGrids,
+                grids = adjustedGrids,
                 omrResults = normalizedOmrResults,
                 correctAnswers = correctAnswers
             )

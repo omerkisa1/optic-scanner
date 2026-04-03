@@ -42,8 +42,9 @@ class PerspectiveCorrector @Inject constructor() {
             10.0
         )
 
-        val markerPoints = detectMarkerBasedCorners(markerBinary, source.width(), source.height(), template)
+        val rawMarkerPoints = detectMarkerBasedCorners(markerBinary, source.width(), source.height(), template)
             ?: detectMarkersMultiThreshold(gray, source.width(), source.height(), template)
+        val markerPoints = rawMarkerPoints?.let { refineMarkerCorners(gray, it) }
         val sourcePoints = markerPoints
             ?: detectPageContourCorners(gray)
             ?: detectPageContourCorners(markerBinary)
@@ -74,6 +75,40 @@ class PerspectiveCorrector @Inject constructor() {
         val output = Bitmap.createBitmap(width.toInt(), height.toInt(), Bitmap.Config.ARGB_8888)
         Utils.matToBitmap(corrected, output)
         return output
+    }
+
+    fun refineMarkerCenter(binary: Mat, roughCenter: Point, searchRadius: Int = 40): Point {
+        val x1 = (roughCenter.x - searchRadius).toInt().coerceAtLeast(0)
+        val y1 = (roughCenter.y - searchRadius).toInt().coerceAtLeast(0)
+        val x2 = (roughCenter.x + searchRadius).toInt().coerceAtMost(binary.cols() - 1)
+        val y2 = (roughCenter.y + searchRadius).toInt().coerceAtMost(binary.rows() - 1)
+        if (x2 <= x1 || y2 <= y1) return roughCenter
+
+        val roi = binary.submat(y1, y2, x1, x2)
+        val moments = Imgproc.moments(roi, true)
+
+        if (moments.m00 > 0) {
+            val cx = moments.m10 / moments.m00 + x1
+            val cy = moments.m01 / moments.m00 + y1
+            roi.release()
+            return Point(cx, cy)
+        }
+
+        roi.release()
+        return roughCenter
+    }
+
+    private fun refineMarkerCorners(
+        gray: Mat,
+        corners: Array<Point>
+    ): Array<Point> {
+        val binary = Mat()
+        Imgproc.threshold(gray, binary, 0.0, 255.0,
+            Imgproc.THRESH_BINARY_INV + Imgproc.THRESH_OTSU)
+
+        val refined = corners.map { refineMarkerCenter(binary, it) }.toTypedArray()
+        binary.release()
+        return refined
     }
 
     private fun detectMarkerBasedCorners(

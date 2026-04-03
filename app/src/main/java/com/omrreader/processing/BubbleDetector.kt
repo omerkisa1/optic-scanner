@@ -13,6 +13,7 @@ import org.opencv.core.Mat
 import org.opencv.core.Point
 import org.opencv.core.Rect
 import org.opencv.core.Scalar
+import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -138,6 +139,82 @@ class BubbleDetector @Inject constructor(
             thresholdDebugImagePath = thresholdDebugPath,
             questionLogs = questionLogLines
         )
+    }
+
+    fun findGridBounds(
+        normalizedPage: Mat,
+        expectedGrid: android.graphics.Rect
+    ): android.graphics.Rect {
+        val margin = 30
+        val sx = (expectedGrid.left - margin).coerceAtLeast(0)
+        val sy = (expectedGrid.top - margin).coerceAtLeast(0)
+        val sx2 = (expectedGrid.right + margin).coerceAtMost(normalizedPage.cols())
+        val sy2 = (expectedGrid.bottom + margin).coerceAtMost(normalizedPage.rows())
+        val sw = (sx2 - sx).coerceAtLeast(1)
+        val sh = (sy2 - sy).coerceAtLeast(1)
+
+        val roi = normalizedPage.submat(Rect(sx, sy, sw, sh))
+
+        val gray = Mat()
+        if (roi.channels() > 1) {
+            Imgproc.cvtColor(roi, gray, Imgproc.COLOR_BGR2GRAY)
+        } else {
+            roi.copyTo(gray)
+        }
+        val binary = Mat()
+        Imgproc.adaptiveThreshold(
+            gray, binary, 255.0,
+            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+            Imgproc.THRESH_BINARY_INV, 15, 5.0
+        )
+
+        val hKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(roi.cols() * 0.5, 1.0)
+        )
+        val horizontal = Mat()
+        Imgproc.morphologyEx(binary, horizontal, Imgproc.MORPH_OPEN, hKernel)
+
+        val hLines = mutableListOf<Int>()
+        for (y in 0 until horizontal.rows()) {
+            if (Core.countNonZero(horizontal.row(y)) > roi.cols() * 0.3) {
+                if (hLines.isEmpty() || y - hLines.last() > 5) {
+                    hLines.add(y)
+                }
+            }
+        }
+
+        val vKernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT, Size(1.0, roi.rows() * 0.3)
+        )
+        val vertical = Mat()
+        Imgproc.morphologyEx(binary, vertical, Imgproc.MORPH_OPEN, vKernel)
+
+        val vLines = mutableListOf<Int>()
+        for (x in 0 until vertical.cols()) {
+            if (Core.countNonZero(vertical.col(x)) > roi.rows() * 0.3) {
+                if (vLines.isEmpty() || x - vLines.last() > 5) {
+                    vLines.add(x)
+                }
+            }
+        }
+
+        listOf(roi, gray, binary, horizontal, vertical, hKernel, vKernel).forEach { it.release() }
+
+        if (hLines.size >= 2 && vLines.size >= 2) {
+            val gridTop = hLines.first() + sy
+            val gridBottom = hLines.last() + sy
+            val gridLeft = vLines.first() + sx
+            val gridRight = vLines.last() + sx
+
+            Log.d(TAG, "Grid fine-tune: expected=(${expectedGrid.left},${expectedGrid.top},${expectedGrid.right},${expectedGrid.bottom})" +
+                " found=($gridLeft,$gridTop,$gridRight,$gridBottom)" +
+                " hLines=${hLines.size} vLines=${vLines.size}")
+
+            return android.graphics.Rect(gridLeft, gridTop, gridRight, gridBottom)
+        }
+
+        Log.d(TAG, "Grid fine-tune: no lines found (h=${hLines.size}, v=${vLines.size}), using expected")
+        return expectedGrid
     }
 
     private fun preprocessPage(input: Mat): Mat {

@@ -156,7 +156,19 @@ data class ResolvedGridRegion(
     val cols: Int,
     val cellWidth: Int,
     val cellHeight: Int
-)
+) {
+    fun withOffset(dx: Int, dy: Int): ResolvedGridRegion {
+        val adjusted = Rect(
+            region.left + dx,
+            region.top + dy,
+            region.right + dx,
+            region.bottom + dy
+        )
+        val newWidth = ((adjusted.right - adjusted.left) / cols).coerceAtLeast(1)
+        val newHeight = ((adjusted.bottom - adjusted.top) / rows).coerceAtLeast(1)
+        return copy(region = adjusted, cellWidth = newWidth, cellHeight = newHeight)
+    }
+}
 
 data class MarkerPoints(
     val topLeft: PointF,
