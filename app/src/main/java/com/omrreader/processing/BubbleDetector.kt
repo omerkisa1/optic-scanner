@@ -29,12 +29,16 @@ class BubbleDetector @Inject constructor(
 ) {
     companion object {
         private const val TAG = "OMR"
-        private const val MEAN_EMPTY_RATIO_MAX = 1.5
-        private const val VALID_SECOND_RATIO_MIN = 1.5
-        private const val VALID_MEAN_MULTIPLIER = 1.5
-        private const val ABOVE_MEAN_MULTIPLIER = 1.4
-        private const val HIGH_MEAN_MULTIPLIER = 1.8
-        private const val MID_MEAN_MULTIPLIER = 1.3
+        // A question is EMPTY when max/mean < this value (no bubble stands out).
+        // Lowered 1.5 → 1.3 so that lightly marked bubbles are not classified as empty.
+        private const val MEAN_EMPTY_RATIO_MAX = 1.3
+        // A single clear mark: max must be at least 1.4× the second-highest fill.
+        private const val VALID_SECOND_RATIO_MIN = 1.4
+        // A mark is valid when it is at least 1.4× the mean (was 1.5).
+        private const val VALID_MEAN_MULTIPLIER = 1.4
+        private const val ABOVE_MEAN_MULTIPLIER = 1.3
+        private const val HIGH_MEAN_MULTIPLIER = 1.7
+        private const val MID_MEAN_MULTIPLIER = 1.2
     }
 
     fun detect(bitmap: Bitmap, grids: List<ResolvedGridRegion>): List<QuestionResult> {
@@ -233,6 +237,8 @@ class BubbleDetector @Inject constructor(
         Imgproc.GaussianBlur(enhanced, blurred, org.opencv.core.Size(3.0, 3.0), 0.0)
 
         val binary = Mat()
+        // constant reduced from 8.0 to 5.0: captures lighter pen marks.
+        // Lower constant = more sensitive (pixel must be 5 levels darker than local mean).
         Imgproc.adaptiveThreshold(
             blurred,
             binary,
@@ -240,7 +246,7 @@ class BubbleDetector @Inject constructor(
             Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
             Imgproc.THRESH_BINARY_INV,
             21,
-            8.0
+            5.0
         )
 
         gray.release()
@@ -258,9 +264,11 @@ class BubbleDetector @Inject constructor(
         val gridHeight = (grid.region.bottom - grid.region.top).toDouble().coerceAtLeast(1.0)
         val cellWidth = gridWidth / grid.cols.toDouble()
         val cellHeight = gridHeight / grid.rows.toDouble()
+        // Use 0.30x cell size so the analysis circle is close to the drawn bubble (0.23x).
+        // The 0.30 factor gives a small extra margin while staying within cell bounds.
         val radius = min(
             FormConstants.BUBBLE_RADIUS,
-            (min(cellWidth, cellHeight) * 0.45).roundToInt().coerceAtLeast(6)
+            (min(cellWidth, cellHeight) * 0.30).roundToInt().coerceAtLeast(6)
         )
 
         for (row in 0 until grid.rows) {

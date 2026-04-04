@@ -453,7 +453,7 @@ class ExamViewModel @Inject constructor(
                 currentQrData = qrData
                 _formExportState.value = FormExportState.Success(file.absolutePath)
             } else {
-                _formExportState.value = FormExportState.Error("Optik form PDF oluşturulamadı.")
+                _formExportState.value = FormExportState.Error("Optik form oluşturulamadı.")
             }
         }
     }

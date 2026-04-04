@@ -1,18 +1,19 @@
 package com.omrreader.export
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
-import android.graphics.pdf.PdfDocument
 import com.omrreader.processing.FormTemplate
 import com.omrreader.processing.GridOverride
 import com.omrreader.processing.ResolvedGridRegion
 import com.omrreader.qr.QRGenerator
 import java.io.File
+import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.min
@@ -28,6 +29,10 @@ class FormGenerator @Inject constructor(
     private val qrGenerator: QRGenerator
 ) {
 
+    /**
+     * Generates the OMR answer sheet as a PNG image file.
+     * Returns the output File on success, null on failure.
+     */
     fun generateTemplatePdf(
         context: Context,
         examName: String,
@@ -39,18 +44,18 @@ class FormGenerator @Inject constructor(
             val outDir = File(context.cacheDir, "exports")
             if (!outDir.exists()) outDir.mkdirs()
 
-            val fileName = "${sanitizeFileName(examName).take(32)}_Optik_Form.pdf"
+            val fileName = "${sanitizeFileName(examName).take(32)}_Optik_Form.png"
             val outputFile = File(outDir, fileName)
 
-            val pageWidth = template.normalizedWidth
+            val pageWidth  = template.normalizedWidth
             val pageHeight = template.normalizedHeight
 
-            val document = PdfDocument()
-            val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
-            val page = document.startPage(pageInfo)
+            // Render into a Bitmap, then compress to PNG
+            val bitmap = Bitmap.createBitmap(pageWidth, pageHeight, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
 
             drawFormPage(
-                canvas = page.canvas,
+                canvas = canvas,
                 pageWidth = pageWidth,
                 pageHeight = pageHeight,
                 examName = examName,
@@ -59,11 +64,11 @@ class FormGenerator @Inject constructor(
                 template = template
             )
 
-            document.finishPage(page)
-            outputFile.outputStream().use { stream ->
-                document.writeTo(stream)
+            FileOutputStream(outputFile).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
             }
-            document.close()
+            if (!bitmap.isRecycled) bitmap.recycle()
+
             outputFile
         } catch (e: Exception) {
             e.printStackTrace()
@@ -147,9 +152,9 @@ class FormGenerator @Inject constructor(
 
         drawMarkers(canvas, template, markerPaint)
 
-        val nameRect = template.resolveNameRegion(pageWidth, pageHeight)
+        val nameRect   = template.resolveNameRegion(pageWidth, pageHeight)
         val numberRect = template.resolveNumberRegion(pageWidth, pageHeight)
-        val classRect = template.resolveClassRegion(pageWidth, pageHeight)
+        val classRect  = template.resolveClassRegion(pageWidth, pageHeight)
         drawIdentitySection(
             canvas = canvas,
             nameRect = nameRect,
@@ -192,7 +197,6 @@ class FormGenerator @Inject constructor(
         drawQrIfNeeded(canvas, template, pageWidth, pageHeight, qrData, borderPaint, labelPaint)
 
         val footerY = (template.normalizedHeight - template.markerMargin - template.markerSize - 10).toFloat()
-
         canvas.drawText(
             "Her soruda yalniz bir secenegi koyu sekilde isaretleyin.",
             40f,
@@ -203,13 +207,13 @@ class FormGenerator @Inject constructor(
 
     private fun drawMarkers(canvas: Canvas, template: FormTemplate, markerPaint: Paint) {
         val markerSize = template.markerSize.toFloat()
-        val margin = template.markerMargin.toFloat()
-        val right = template.normalizedWidth.toFloat() - margin - markerSize
-        val bottom = template.normalizedHeight.toFloat() - margin - markerSize
+        val margin     = template.markerMargin.toFloat()
+        val right      = template.normalizedWidth.toFloat()  - margin - markerSize
+        val bottom     = template.normalizedHeight.toFloat() - margin - markerSize
 
         canvas.drawRect(margin, margin, margin + markerSize, margin + markerSize, markerPaint)
-        canvas.drawRect(right, margin, right + markerSize, margin + markerSize, markerPaint)
-        canvas.drawRect(right, bottom, right + markerSize, bottom + markerSize, markerPaint)
+        canvas.drawRect(right,  margin, right  + markerSize, margin + markerSize, markerPaint)
+        canvas.drawRect(right,  bottom, right  + markerSize, bottom + markerSize, markerPaint)
         canvas.drawRect(margin, bottom, margin + markerSize, bottom + markerSize, markerPaint)
     }
 
@@ -225,24 +229,24 @@ class FormGenerator @Inject constructor(
         fieldFillPaint: Paint,
         fieldGuidePaint: Paint
     ) {
-        val left = minOf(nameRect.left, numberRect.left, classRect.left)
-        val top = minOf(nameRect.top, numberRect.top, classRect.top)
-        val right = maxOf(nameRect.right, numberRect.right, classRect.right)
+        val left   = minOf(nameRect.left,   numberRect.left,   classRect.left)
+        val top    = minOf(nameRect.top,     numberRect.top,    classRect.top)
+        val right  = maxOf(nameRect.right,  numberRect.right,  classRect.right)
         val bottom = maxOf(nameRect.bottom, numberRect.bottom, classRect.bottom)
 
         val sectionRect = RectF(
             (left - 12).toFloat(),
-            (top - 18).toFloat(),
-            (right + 12).toFloat(),
+            (top  - 18).toFloat(),
+            (right  + 12).toFloat(),
             (bottom + 12).toFloat()
         )
         canvas.drawRoundRect(sectionRect, 10f, 10f, sectionFillPaint)
         canvas.drawRoundRect(sectionRect, 10f, 10f, borderPaint)
         canvas.drawText("Kimlik Bilgileri", sectionRect.left + 12f, sectionRect.top + 14f, sectionTitlePaint)
 
-        drawField(canvas, nameRect, "Ad Soyad", fieldLabelPaint, borderPaint, fieldFillPaint, fieldGuidePaint)
+        drawField(canvas, nameRect,   "Ad Soyad",   fieldLabelPaint, borderPaint, fieldFillPaint, fieldGuidePaint)
         drawField(canvas, numberRect, "Ogrenci No", fieldLabelPaint, borderPaint, fieldFillPaint, fieldGuidePaint)
-        drawField(canvas, classRect, "Sinif", fieldLabelPaint, borderPaint, fieldFillPaint, fieldGuidePaint)
+        drawField(canvas, classRect,  "Sinif",      fieldLabelPaint, borderPaint, fieldFillPaint, fieldGuidePaint)
     }
 
     private fun drawField(
@@ -274,9 +278,9 @@ class FormGenerator @Inject constructor(
         linePaint: Paint,
         bubblePaint: Paint
     ) {
-        val left = grid.region.left.toFloat()
-        val top = grid.region.top.toFloat()
-        val right = grid.region.right.toFloat()
+        val left   = grid.region.left.toFloat()
+        val top    = grid.region.top.toFloat()
+        val right  = grid.region.right.toFloat()
         val bottom = grid.region.bottom.toFloat()
 
         canvas.drawRect(left, top, right, bottom, linePaint)
@@ -290,7 +294,6 @@ class FormGenerator @Inject constructor(
             if (col > 0) {
                 canvas.drawLine(x, top, x, bottom, linePaint)
             }
-
             val label = ('A'.code + col).toChar().toString()
             val cx = x + (grid.cellWidth / 2f)
             canvas.drawText(label, cx, optionLabelY, optionPaint)
@@ -308,14 +311,14 @@ class FormGenerator @Inject constructor(
             }
 
             val rowLabel = (row + 1).toString()
-            val labelY = y + (grid.cellHeight / 2f) + 4f
-            canvas.drawText(rowLabel, left - 6f, labelY, rowNumberPaint)
+            val rowLabelY = y + (grid.cellHeight / 2f) + 4f
+            canvas.drawText(rowLabel, left - 6f, rowLabelY, rowNumberPaint)
 
             for (col in 0 until grid.cols) {
                 val cellLeft = left + col * grid.cellWidth
-                val centerX = cellLeft + grid.cellWidth / 2f
-                val centerY = y + grid.cellHeight / 2f
-                val radius = (min(grid.cellWidth, grid.cellHeight) * 0.23f).coerceAtLeast(4f)
+                val centerX  = cellLeft + grid.cellWidth  / 2f
+                val centerY  = y        + grid.cellHeight / 2f
+                val radius   = (min(grid.cellWidth, grid.cellHeight) * 0.23f).coerceAtLeast(4f)
                 canvas.drawCircle(centerX, centerY, radius, bubblePaint)
             }
         }
@@ -342,7 +345,6 @@ class FormGenerator @Inject constructor(
             qrRegion.left + side,
             qrRegion.top + side
         )
-
         canvas.drawBitmap(qrBitmap, null, drawRect, null)
         canvas.drawRect(RectF(drawRect), borderPaint)
         val labelY = (drawRect.top - 6f).coerceAtLeast(14f)

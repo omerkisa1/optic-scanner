@@ -123,10 +123,15 @@ class ProcessOMRUseCase @Inject constructor(
                 val actualBounds = bubbleDetector.findGridBounds(pageMat, grid.region)
                 val dx = actualBounds.left - grid.region.left
                 val dy = actualBounds.top - grid.region.top
-                if (abs(dx) > 3 || abs(dy) > 3) {
+                // Only apply offset when shift is plausible (4–15 px): too-small shifts are
+                // rounding noise, too-large shifts indicate a bad line detection result.
+                if (abs(dx) in 4..15 && abs(dy) in 4..15) {
                     Log.d(TAG, "Grid offset applied: dx=$dx dy=$dy")
                     grid.withOffset(dx, dy)
                 } else {
+                    if (abs(dx) > 15 || abs(dy) > 15) {
+                        Log.d(TAG, "Grid offset ignored (too large): dx=$dx dy=$dy")
+                    }
                     grid
                 }
             }

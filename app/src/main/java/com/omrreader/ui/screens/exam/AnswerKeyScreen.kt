@@ -74,7 +74,7 @@ fun AnswerKeyScreen(
             is FormExportState.Success -> {
                 val file = File(state.filePath)
                 if (file.exists()) {
-                    shareFile(context, file, "application/pdf")
+                    shareFile(context, file, "image/png")
                 } else {
                     snackbarHostState.showSnackbar("Form dosyası bulunamadı.")
                 }

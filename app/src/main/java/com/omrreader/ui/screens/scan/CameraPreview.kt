@@ -38,16 +38,37 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-sealed class MarkerGuideState {
-    object NotFound : MarkerGuideState()
-    data class Partial(val markers: List<MarkerPoint>) : MarkerGuideState()
-    data class Ready(val markers: List<MarkerPoint>) : MarkerGuideState()
-}
+/**
+ * Per-corner detection state.
+ * Each field is non-null only when that corner's marker has been found.
+ * Coordinates are normalised to 0..1 relative to the camera frame.
+ */
+data class MarkerPoint(val x: Float, val y: Float)
 
-data class MarkerPoint(
-    val x: Float,
-    val y: Float
-)
+sealed class MarkerGuideState {
+    /** No recognisable marker found at all. */
+    object NotFound : MarkerGuideState()
+
+    /**
+     * Some corners detected but not all four.
+     * Null fields = corner not yet found.
+     */
+    data class Partial(
+        val topLeft: MarkerPoint?,
+        val topRight: MarkerPoint?,
+        val bottomRight: MarkerPoint?,
+        val bottomLeft: MarkerPoint?,
+        val foundCount: Int
+    ) : MarkerGuideState()
+
+    /** All four corners detected – ready to capture. */
+    data class Ready(
+        val topLeft: MarkerPoint,
+        val topRight: MarkerPoint,
+        val bottomRight: MarkerPoint,
+        val bottomLeft: MarkerPoint
+    ) : MarkerGuideState()
+}
 
 @Composable
 fun CameraPreview(
@@ -272,45 +293,56 @@ private fun detectMarkerState(bitmap: Bitmap): MarkerGuideState {
 
     if (candidates.isEmpty()) return MarkerGuideState.NotFound
 
-    val selected = selectCornerMarkers(candidates, source.width().toDouble(), source.height().toDouble())
+    val w = source.width().toDouble()
+    val h = source.height().toDouble()
+    val corners = selectCornersByQuadrant(candidates, w, h)
+    val iW = source.width(); val iH = source.height()
+
+    val tl = corners.topLeft?.toMarkerPoint(iW, iH)
+    val tr = corners.topRight?.toMarkerPoint(iW, iH)
+    val br = corners.bottomRight?.toMarkerPoint(iW, iH)
+    val bl = corners.bottomLeft?.toMarkerPoint(iW, iH)
+    val count = listOfNotNull(tl, tr, br, bl).size
+
+    listOf(source, gray, binary, hierarchy).forEach { it.release() }
+
     return when {
-        selected.size == 4 -> MarkerGuideState.Ready(selected.map { it.toMarkerPoint(source.width(), source.height()) })
-        selected.size >= 2 -> MarkerGuideState.Partial(selected.map { it.toMarkerPoint(source.width(), source.height()) })
-        candidates.size >= 2 -> MarkerGuideState.Partial(
-            candidates.take(2).map { it.toMarkerPoint(source.width(), source.height()) }
-        )
+        count == 4 -> MarkerGuideState.Ready(tl!!, tr!!, br!!, bl!!)
+        count >= 1 -> MarkerGuideState.Partial(tl, tr, br, bl, count)
         else -> MarkerGuideState.NotFound
     }
 }
 
-private fun selectCornerMarkers(candidates: List<Point>, width: Double, height: Double): List<Point> {
-    val pool = candidates.toMutableList()
-    val diagonal = hypot(width, height).coerceAtLeast(1.0)
-    val maxDistance = diagonal * 0.35
+private data class CornerSelection(
+    val topLeft: Point?,
+    val topRight: Point?,
+    val bottomRight: Point?,
+    val bottomLeft: Point?
+)
 
-    val cornerTargets = listOf(
-        Point(0.0, 0.0),
-        Point(width, 0.0),
-        Point(width, height),
-        Point(0.0, height)
+/** Assigns candidates to TL / TR / BR / BL by closest quadrant corner. */
+private fun selectCornersByQuadrant(candidates: List<Point>, w: Double, h: Double): CornerSelection {
+    val pool = candidates.toMutableList()
+    val maxDist = hypot(w, h) * 0.35
+
+    val targets = listOf(
+        Point(0.0, 0.0),   // TL
+        Point(w,   0.0),   // TR
+        Point(w,   h),     // BR
+        Point(0.0, h)      // BL
     )
 
-    val selected = mutableListOf<Point>()
-    for (target in cornerTargets) {
-        val best = pool.minByOrNull { point ->
-            val dx = point.x - target.x
-            val dy = point.y - target.y
-            (dx * dx) + (dy * dy)
-        } ?: continue
-
-        val distance = hypot(best.x - target.x, best.y - target.y)
-        if (distance <= maxDistance) {
-            selected.add(best)
+    val results = targets.map { target ->
+        val best = pool.minByOrNull { hypot(it.x - target.x, it.y - target.y) }
+        if (best != null && hypot(best.x - target.x, best.y - target.y) <= maxDist) {
             pool.remove(best)
+            best
+        } else {
+            null
         }
     }
 
-    return selected
+    return CornerSelection(results[0], results[1], results[2], results[3])
 }
 
 private fun Point.toMarkerPoint(width: Int, height: Int): MarkerPoint {

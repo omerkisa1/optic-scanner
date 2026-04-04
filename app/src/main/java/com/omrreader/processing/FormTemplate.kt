@@ -8,7 +8,10 @@ import kotlin.math.roundToInt
 object FormConstants {
     const val PAGE_WIDTH = 1200
     const val PAGE_HEIGHT = 1700
-    const val BUBBLE_RADIUS = 14
+    // Raised from 14 → 25: the form draws bubbles at ~cellSize*0.23 (≈22 px for
+    // typical cells). A 14 px analysis circle only samples 38 % of the bubble area.
+    // 25 px matches the drawn bubble size much more closely.
+    const val BUBBLE_RADIUS = 25
 }
 
 data class FormTemplate(
