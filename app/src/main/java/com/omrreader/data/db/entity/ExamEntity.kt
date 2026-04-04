@@ -12,5 +12,6 @@ data class ExamEntity(
     val optionCount: Int,
     val totalPoints: Double = 100.0,
     val createdAt: Long = System.currentTimeMillis(),
-    val qrData: String? = null
+    val qrData: String? = null,
+    val formFormat: String = "CLASSIC_BORDERED"
 )

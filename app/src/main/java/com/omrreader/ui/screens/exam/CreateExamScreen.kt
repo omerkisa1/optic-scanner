@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.omrreader.processing.FormFormat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,6 +114,26 @@ fun CreateExamScreen(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+            }
+
+            item {
+                Text(
+                    text = "Form Formatı",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = viewModel.formFormat == FormFormat.CLASSIC_BORDERED,
+                        onClick = { viewModel.onFormFormatChange(FormFormat.CLASSIC_BORDERED) },
+                        label = { Text("Klasik (Tablolu)") }
+                    )
+                    FilterChip(
+                        selected = viewModel.formFormat == FormFormat.COMPACT_ZIPGRADE,
+                        onClick = { viewModel.onFormFormatChange(FormFormat.COMPACT_ZIPGRADE) },
+                        label = { Text("Kompakt (Bordürsüz)") }
+                    )
+                }
             }
 
             item {

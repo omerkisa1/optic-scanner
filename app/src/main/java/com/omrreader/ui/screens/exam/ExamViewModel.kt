@@ -14,6 +14,7 @@ import com.omrreader.domain.model.AnswerKey
 import com.omrreader.domain.model.Exam
 import com.omrreader.export.FormGenerator
 import com.omrreader.export.FormSubjectLayout
+import com.omrreader.processing.FormFormat
 import com.omrreader.qr.QRGenerator
 import com.omrreader.scoring.ScoringEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -50,7 +51,8 @@ private data class QRPayload(
     val id: String,
     val name: String,
     val subjects: List<QRSubject>,
-    val total: Int = 100
+    val total: Int = 100,
+    val format: String? = null
 )
 
 private data class QRSubject(
@@ -100,6 +102,9 @@ class ExamViewModel @Inject constructor(
         private set
 
     var subjectCount by mutableIntStateOf(1)
+        private set
+
+    var formFormat by mutableStateOf(FormFormat.CLASSIC_BORDERED)
         private set
 
     var subjects by mutableStateOf(listOf(SubjectConfig("DERS 1", questionCount, DEFAULT_OPTION_COUNT)))
@@ -178,6 +183,10 @@ class ExamViewModel @Inject constructor(
         }
     }
 
+    fun onFormFormatChange(value: FormFormat) {
+        formFormat = value
+    }
+
     fun onSubjectNameChange(index: Int, value: String) {
         subjects = subjects.mapIndexed { i, subject ->
             if (i == index) subject.copy(name = value) else subject
@@ -250,7 +259,8 @@ class ExamViewModel @Inject constructor(
                 name = displayName,
                 subjectCount = 1,
                 questionsPerSubject = subjectConfig.questionCount,
-                optionCount = subjectConfig.optionCount
+                optionCount = subjectConfig.optionCount,
+                formFormat = formFormat.name
             )
 
             val defaultWeight = 100.0 / subjectConfig.questionCount
@@ -284,6 +294,7 @@ class ExamViewModel @Inject constructor(
             examName = exam.name
             subjectCount = exam.subjectCount
             questionCount = exam.questionsPerSubject
+            formFormat = FormFormat.fromString(exam.formFormat)
             currentQrData = exam.qrData
 
             val loadedKeys = examRepository.getAnswerKeysForExam(examId)
@@ -446,7 +457,8 @@ class ExamViewModel @Inject constructor(
                 context = context,
                 examName = exam.name,
                 subjects = layouts,
-                qrData = qrData
+                qrData = qrData,
+                formFormat = formFormat
             )
 
             if (file != null) {
@@ -582,7 +594,8 @@ class ExamViewModel @Inject constructor(
             id = "exam_$examId",
             name = exam.name,
             subjects = subjectPayloads,
-            total = 100
+            total = 100,
+            format = formFormat.name
         )
 
         return gson.toJson(payload)

@@ -26,7 +26,7 @@ import com.omrreader.data.db.entity.StudentResultEntity
         RosterStudentEntity::class,
         ClassroomExamResultEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -77,6 +77,12 @@ abstract class AppDatabase : RoomDatabase() {
                         FOREIGN KEY (rosterStudentId) REFERENCES roster_students(id) ON DELETE SET NULL
                     )
                 """)
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE exams ADD COLUMN formFormat TEXT NOT NULL DEFAULT 'CLASSIC_BORDERED'")
             }
         }
     }

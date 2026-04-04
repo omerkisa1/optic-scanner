@@ -8,6 +8,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
+import com.omrreader.processing.FormFormat
 import com.omrreader.processing.FormTemplate
 import com.omrreader.processing.GridOverride
 import com.omrreader.processing.ResolvedGridRegion
@@ -33,7 +34,8 @@ class FormGenerator @Inject constructor(
         examName: String,
         subjects: List<FormSubjectLayout>,
         qrData: String? = null,
-        template: FormTemplate = FormTemplate.DEFAULT
+        template: FormTemplate = FormTemplate.DEFAULT,
+        formFormat: FormFormat = FormFormat.CLASSIC_BORDERED
     ): File? {
         return try {
             val outDir = File(context.cacheDir, "exports")
@@ -56,7 +58,8 @@ class FormGenerator @Inject constructor(
                 examName = examName,
                 subjects = subjects,
                 qrData = qrData,
-                template = template
+                template = template,
+                formFormat = formFormat
             )
 
             document.finishPage(page)
@@ -78,7 +81,8 @@ class FormGenerator @Inject constructor(
         examName: String,
         subjects: List<FormSubjectLayout>,
         qrData: String?,
-        template: FormTemplate
+        template: FormTemplate,
+        formFormat: FormFormat
     ) {
         canvas.drawColor(Color.WHITE)
 
@@ -178,15 +182,27 @@ class FormGenerator @Inject constructor(
         resolvedGrids.forEachIndexed { index, grid ->
             val subjectName = effectiveSubjects.getOrNull(index)?.name?.ifBlank { "DERS ${index + 1}" }
                 ?: "DERS ${index + 1}"
-            drawGrid(
-                canvas = canvas,
-                grid = grid,
-                subjectName = subjectName,
-                labelPaint = labelPaint,
-                optionPaint = optionPaint,
-                linePaint = linePaint,
-                bubblePaint = bubblePaint
-            )
+            val questionOffset = resolvedGrids.take(index).sumOf { it.rows }
+            when (formFormat) {
+                FormFormat.COMPACT_ZIPGRADE -> drawGridCompact(
+                    canvas = canvas,
+                    grid = grid,
+                    subjectName = subjectName,
+                    questionOffset = questionOffset,
+                    labelPaint = labelPaint,
+                    optionPaint = optionPaint,
+                    bubblePaint = bubblePaint
+                )
+                else -> drawGrid(
+                    canvas = canvas,
+                    grid = grid,
+                    subjectName = subjectName,
+                    labelPaint = labelPaint,
+                    optionPaint = optionPaint,
+                    linePaint = linePaint,
+                    bubblePaint = bubblePaint
+                )
+            }
         }
 
         drawQrIfNeeded(canvas, template, pageWidth, pageHeight, qrData, borderPaint, labelPaint)
@@ -308,6 +324,51 @@ class FormGenerator @Inject constructor(
             }
 
             val rowLabel = (row + 1).toString()
+            val labelY = y + (grid.cellHeight / 2f) + 4f
+            canvas.drawText(rowLabel, left - 6f, labelY, rowNumberPaint)
+
+            for (col in 0 until grid.cols) {
+                val cellLeft = left + col * grid.cellWidth
+                val centerX = cellLeft + grid.cellWidth / 2f
+                val centerY = y + grid.cellHeight / 2f
+                val radius = (min(grid.cellWidth, grid.cellHeight) * 0.23f).coerceAtLeast(4f)
+                canvas.drawCircle(centerX, centerY, radius, bubblePaint)
+            }
+        }
+    }
+
+    private fun drawGridCompact(
+        canvas: Canvas,
+        grid: ResolvedGridRegion,
+        subjectName: String,
+        questionOffset: Int,
+        labelPaint: Paint,
+        optionPaint: Paint,
+        bubblePaint: Paint
+    ) {
+        val left = grid.region.left.toFloat()
+        val top = grid.region.top.toFloat()
+
+        val titleY = (top - 10f).coerceAtLeast(14f)
+        canvas.drawText(subjectName.take(24), left, titleY, labelPaint)
+
+        val optionLabelY = (top - 4f).coerceAtLeast(20f)
+        for (col in 0 until grid.cols) {
+            val x = left + col * grid.cellWidth
+            val label = ('A'.code + col).toChar().toString()
+            val cx = x + (grid.cellWidth / 2f)
+            canvas.drawText(label, cx, optionLabelY, optionPaint)
+        }
+
+        val rowNumberPaint = Paint(labelPaint).apply {
+            textAlign = Paint.Align.RIGHT
+            textSize = 12f
+        }
+
+        for (row in 0 until grid.rows) {
+            val y = top + row * grid.cellHeight
+
+            val rowLabel = (questionOffset + row + 1).toString()
             val labelY = y + (grid.cellHeight / 2f) + 4f
             canvas.drawText(rowLabel, left - 6f, labelY, rowNumberPaint)
 

@@ -53,7 +53,8 @@ data class OMRAnswerKeyResponse(
     val id: String,
     val name: String,
     val subjects: List<SubjectInfo>,
-    val total: Int = 100
+    val total: Int = 100,
+    val format: String? = null
 )
 
 data class SubjectInfo(

@@ -30,14 +30,16 @@ class ExamRepository @Inject constructor(
         name: String,
         subjectCount: Int,
         questionsPerSubject: Int,
-        optionCount: Int
+        optionCount: Int,
+        formFormat: String = "CLASSIC_BORDERED"
     ): Long {
         return insertExam(
             Exam(
                 name = name,
                 subjectCount = subjectCount,
                 questionsPerSubject = questionsPerSubject,
-                optionCount = optionCount
+                optionCount = optionCount,
+                formFormat = formFormat
             )
         )
     }
@@ -84,8 +86,8 @@ class ExamRepository @Inject constructor(
         )
     }
 
-    private fun ExamEntity.toDomain() = Exam(id, name, subjectCount, questionsPerSubject, optionCount, totalPoints, createdAt, qrData)
-    private fun Exam.toEntity() = ExamEntity(id, name, subjectCount, questionsPerSubject, optionCount, totalPoints, createdAt, qrData)
+    private fun ExamEntity.toDomain() = Exam(id, name, subjectCount, questionsPerSubject, optionCount, totalPoints, createdAt, qrData, formFormat)
+    private fun Exam.toEntity() = ExamEntity(id, name, subjectCount, questionsPerSubject, optionCount, totalPoints, createdAt, qrData, formFormat)
     
     private fun AnswerKeyEntity.toDomain() = AnswerKey(id, examId, subjectIndex, questionNumber, correctAnswer, weight, isWeightLocked)
     private fun AnswerKey.toEntity() = AnswerKeyEntity(id, examId, subjectIndex, questionNumber, correctAnswer, weight, isWeightLocked)

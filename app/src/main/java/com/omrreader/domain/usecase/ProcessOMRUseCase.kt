@@ -14,6 +14,7 @@ import com.omrreader.domain.model.ProcessResult
 import com.omrreader.domain.model.QuestionResult
 import com.omrreader.domain.model.SubjectInfo
 import com.omrreader.processing.BubbleDetector
+import com.omrreader.processing.FormFormat
 import com.omrreader.processing.FormTemplate
 import com.omrreader.processing.GridOverride
 import com.omrreader.processing.ResolvedGridRegion
@@ -115,22 +116,29 @@ class ProcessOMRUseCase @Inject constructor(
                 "class"
             )
 
+            val detectedFormat = FormFormat.fromString(answerKey.format)
             val resolvedGrids = template.resolveGrids(correctedWidth, correctedHeight, subjectOverrides)
 
-            val pageMat = Mat()
-            Utils.bitmapToMat(corrected, pageMat)
-            val adjustedGrids = resolvedGrids.map { grid ->
-                val actualBounds = bubbleDetector.findGridBounds(pageMat, grid.region)
-                val dx = actualBounds.left - grid.region.left
-                val dy = actualBounds.top - grid.region.top
-                if (abs(dx) > 3 || abs(dy) > 3) {
-                    Log.d(TAG, "Grid offset applied: dx=$dx dy=$dy")
-                    grid.withOffset(dx, dy)
-                } else {
-                    grid
+            val adjustedGrids = if (detectedFormat == FormFormat.COMPACT_ZIPGRADE) {
+                Log.d(TAG, "Compact format detected — skipping grid line search")
+                resolvedGrids
+            } else {
+                val pageMat = Mat()
+                Utils.bitmapToMat(corrected, pageMat)
+                val result = resolvedGrids.map { grid ->
+                    val actualBounds = bubbleDetector.findGridBounds(pageMat, grid.region)
+                    val dx = actualBounds.left - grid.region.left
+                    val dy = actualBounds.top - grid.region.top
+                    if (abs(dx) > 3 || abs(dy) > 3) {
+                        Log.d(TAG, "Grid offset applied: dx=$dx dy=$dy")
+                        grid.withOffset(dx, dy)
+                    } else {
+                        grid
+                    }
                 }
+                pageMat.release()
+                result
             }
-            pageMat.release()
 
             val bubbleOutput = bubbleDetector.detectWithDebug(corrected, template, adjustedGrids)
             val omrResults = bubbleOutput.results

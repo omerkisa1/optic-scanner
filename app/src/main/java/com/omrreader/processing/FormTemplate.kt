@@ -5,6 +5,20 @@ import android.graphics.Rect
 import android.graphics.RectF
 import kotlin.math.roundToInt
 
+enum class FormFormat {
+    CLASSIC_BORDERED,
+    COMPACT_ZIPGRADE;
+
+    companion object {
+        fun fromString(value: String?): FormFormat {
+            return when (value?.uppercase()) {
+                "COMPACT_ZIPGRADE" -> COMPACT_ZIPGRADE
+                else -> CLASSIC_BORDERED
+            }
+        }
+    }
+}
+
 object FormConstants {
     const val PAGE_WIDTH = 1200
     const val PAGE_HEIGHT = 1700
