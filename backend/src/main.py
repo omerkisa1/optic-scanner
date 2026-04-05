@@ -2,10 +2,19 @@ from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse, StreamingResponse
 import io
 import re
+import time
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import pytesseract
+import easyocr
+
+try:
+    easy_reader = easyocr.Reader(["tr", "en"], gpu=False)
+    print("[OCR] EasyOCR reader initialized")
+except Exception as e:
+    easy_reader = None
+    print(f"[OCR] EasyOCR reader init failed: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -114,6 +123,99 @@ def _ocr_field(crop_gray: np.ndarray, lang: str) -> str:
             _try(variant, oem=3)
 
     return best if best_score >= 1 else "Okunamadı"
+
+
+def _ocr_name_easyocr(roi_bgr: np.ndarray) -> str:
+    if easy_reader is None:
+        return ""
+    if roi_bgr is None or roi_bgr.size == 0:
+        return ""
+
+    working = roi_bgr
+    h, w = working.shape[:2]
+    if w > 0 and w < 800:
+        scale = 800.0 / float(w)
+        working = cv2.resize(working, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+    gray = cv2.cvtColor(working, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    padded = cv2.copyMakeBorder(enhanced, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
+
+    results = easy_reader.readtext(padded, detail=1, paragraph=False)
+    if not results:
+        results = easy_reader.readtext(working, detail=1, paragraph=False)
+    if not results:
+        return ""
+
+    texts = []
+    for item in results:
+        if len(item) < 3:
+            continue
+        _, text, conf = item
+        stripped = text.strip()
+        if conf > 0.2 and len(stripped) > 0:
+            texts.append(stripped)
+
+    raw = " ".join(texts)
+    cleaned = re.sub(r"[^a-zA-ZğüşıöçĞÜŞİÖÇ\s]", "", raw)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    if cleaned:
+        words = []
+        for token in cleaned.split():
+            low = token.lower()
+            if not low:
+                continue
+            if low[0] == "i":
+                words.append("İ" + low[1:])
+            elif low[0] == "ı":
+                words.append("I" + low[1:])
+            else:
+                words.append(low[0].upper() + low[1:])
+        cleaned = " ".join(words)
+
+    return cleaned
+
+
+def _ocr_name_hybrid(roi_bgr: np.ndarray, lang: str):
+    easy_result = _ocr_name_easyocr(roi_bgr)
+
+    tess_result = ""
+    if roi_bgr is not None and roi_bgr.size > 0:
+        gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
+        tess_result = _ocr_field(gray, lang)
+        if tess_result == "Okunamadı":
+            tess_result = ""
+
+    candidates = []
+    if easy_result and len(easy_result) >= 2:
+        alpha_score = sum(1 for c in easy_result if c.isalpha())
+        candidates.append((easy_result, alpha_score, "easyocr"))
+
+    if tess_result and len(tess_result) >= 2:
+        alpha_score = sum(1 for c in tess_result if c.isalpha())
+        candidates.append((tess_result, alpha_score, "tesseract"))
+
+    if not candidates:
+        debug = {
+            "easyocr_result": easy_result,
+            "tesseract_result": tess_result,
+            "selected": "none",
+            "final": "",
+        }
+        return "", debug
+
+    best = max(candidates, key=lambda x: x[1])
+    print(f"[OCR] EasyOCR: '{easy_result}' | Tesseract: '{tess_result}' | Secilen: {best[2]} -> '{best[0]}'")
+
+    debug = {
+        "easyocr_result": easy_result,
+        "tesseract_result": tess_result,
+        "selected": best[2],
+        "final": best[0],
+    }
+    return best[0], debug
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -486,13 +588,45 @@ async def process_form(
         # ── C. OCR — sadece isim ──────────────────────────────────────────────
         ocr_lang    = _ocr_lang()
         student_info = {}
+        ocr_debug = {
+            "easyocr_result": "",
+            "tesseract_result": "",
+            "selected": "",
+            "final": "",
+        }
         for field in schema["fields"]:
             fx = int(field["x"] * maxW);  fy = int(field["y"] * maxH)
             fw = int(field["w"] * maxW);  fh = int(field["h"] * maxH)
             inset      = 3
-            field_crop = warped_gray[fy + inset:fy + fh - inset,
+            field_crop_gray = warped_gray[fy + inset:fy + fh - inset,
+                                          fx + inset:fx + fw - inset]
+            field_crop_bgr  = warped[fy + inset:fy + fh - inset,
                                      fx + inset:fx + fw - inset]
-            text = _ocr_field(field_crop, ocr_lang)
+
+            text = _ocr_field(field_crop_gray, ocr_lang)
+            if field["name"] == "student_name":
+                debug_path = ""
+                try:
+                    debug_path = f"/tmp/name_roi_debug_{int(time.time() * 1000)}.png"
+                    cv2.imwrite(debug_path, field_crop_bgr)
+                    print(f"[DEBUG] Name ROI saved: {debug_path}")
+                except Exception as debug_err:
+                    print(f"[DEBUG] Name ROI save failed: {debug_err}")
+
+                hybrid_text, hybrid_debug = _ocr_name_hybrid(field_crop_bgr, ocr_lang)
+                if hybrid_text and len(hybrid_text) >= 2:
+                    text = hybrid_text
+                elif not text or text == "Okunamadı":
+                    text = "Okunamadı"
+
+                ocr_debug = {
+                    "easyocr_result": hybrid_debug.get("easyocr_result", ""),
+                    "tesseract_result": hybrid_debug.get("tesseract_result", text),
+                    "selected": hybrid_debug.get("selected", "tesseract"),
+                    "final": text,
+                    "debug_roi_path": debug_path,
+                }
+
             student_info[field["name"]] = text
             cv2.rectangle(debug_img, (fx, fy), (fx + fw, fy + fh), (255, 0, 0), 2)
 
@@ -567,6 +701,7 @@ async def process_form(
             "status": "success",
             "student_info": student_info,
             "answers": answers,
+            "ocr_debug": ocr_debug,
             "metadata": {"processed_width": maxW, "processed_height": maxH},
         }
 
