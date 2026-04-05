@@ -10,6 +10,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import { processForm } from '../api/omrApi';
 import { ScanResult } from '../types';
 import { useStore } from '../store/useStore';
+import { palette, radii } from '../theme/palette';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScanResult'>;
 
@@ -86,13 +87,13 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
     return (
       <View style={[styles.container, styles.centered]}>
         <View style={styles.loadingCard}>
-          <ActivityIndicator size="large" color="#F4511E" />
+          <ActivityIndicator size="large" color={palette.accent} />
           <Text style={styles.loadingTitle}>Optik form okunuyor</Text>
           <Text style={styles.loadingSubtext}>
             Geri dönebilirsiniz. Sonuç hazır olunca otomatik kaydedilir.
           </Text>
           <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-            <ArrowLeft size={16} color="#F4511E" />
+            <ArrowLeft size={16} color={palette.accent} />
             <Text style={styles.backBtnText}>Geri Dön</Text>
           </TouchableOpacity>
         </View>
@@ -104,11 +105,11 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
     return (
       <View style={[styles.container, styles.centered]}>
         <View style={styles.errorCard}>
-          <AlertCircle size={48} color="#DC2626" />
+          <AlertCircle size={48} color={palette.negative} />
           <Text style={styles.errorTitle}>Tarama Başarısız</Text>
           <Text style={styles.errorMsg}>{errorMSG}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={() => navigation.goBack()}>
-            <ArrowLeft size={16} color="#fff" />
+            <ArrowLeft size={16} color={palette.white} />
             <Text style={styles.retryBtnText}>Geri Dön</Text>
           </TouchableOpacity>
         </View>
@@ -145,7 +146,12 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
     evaluation.push({ qNo, userAns, correctAns, status, explanation });
   }
 
-  const statusColors = { correct: '#059669', wrong: '#DC2626', blank: '#9CA3AF', multiple: '#D97706' };
+  const statusColors = {
+    correct: palette.positive,
+    wrong: palette.negative,
+    blank: palette.muted,
+    multiple: palette.warning,
+  };
   const StatusIconMap = {
     correct: CheckCircle2,
     wrong: XCircle,
@@ -157,11 +163,10 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 30 }}>
       <Image source={{ uri: imageUri }} style={styles.previewImage} resizeMode="contain" />
 
-      {/* Student Info */}
       <View style={styles.card}>
         <View style={styles.studentRow}>
           <View style={styles.studentAvatar}>
-            <User size={22} color="#F4511E" />
+            <User size={22} color={palette.primary} />
           </View>
           <View style={styles.studentInfo}>
             <Text style={styles.studentName}>
@@ -172,30 +177,28 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
         </View>
       </View>
 
-      {/* Score Summary */}
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Sonuç Özeti</Text>
         <View style={styles.statsRow}>
-          <View style={[styles.statBox, { backgroundColor: '#ECFDF5' }]}>
-            <Text style={[styles.statNum, { color: '#059669' }]}>{correct}</Text>
+          <View style={[styles.statBox, { backgroundColor: '#E4F6EE' }]}>
+            <Text style={[styles.statNum, { color: palette.positive }]}>{correct}</Text>
             <Text style={styles.statLabel}>Doğru</Text>
           </View>
-          <View style={[styles.statBox, { backgroundColor: '#FEF2F2' }]}>
-            <Text style={[styles.statNum, { color: '#DC2626' }]}>{wrong}</Text>
+          <View style={[styles.statBox, { backgroundColor: '#FCE7E7' }]}>
+            <Text style={[styles.statNum, { color: palette.negative }]}>{wrong}</Text>
             <Text style={styles.statLabel}>Yanlış</Text>
           </View>
-          <View style={[styles.statBox, { backgroundColor: '#F3F4F6' }]}>
-            <Text style={[styles.statNum, { color: '#6B7280' }]}>{blank}</Text>
+          <View style={[styles.statBox, { backgroundColor: palette.mist }]}>
+            <Text style={[styles.statNum, { color: palette.muted }]}>{blank}</Text>
             <Text style={styles.statLabel}>Boş</Text>
           </View>
-          <View style={[styles.statBox, { backgroundColor: '#EFF6FF' }]}>
-            <Text style={[styles.statNum, { color: '#2563EB' }]}>{score.toFixed(2)}</Text>
+          <View style={[styles.statBox, { backgroundColor: '#DAF4EF' }]}>
+            <Text style={[styles.statNum, { color: palette.primary }]}>{score.toFixed(2)}</Text>
             <Text style={styles.statLabel}>Puan</Text>
           </View>
         </View>
       </View>
 
-      {/* Answer Analysis */}
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Soru Analizi</Text>
         {evaluation.map((item: any) => (
@@ -203,9 +206,9 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
             <View style={[
               styles.questionHeader,
               {
-                backgroundColor: item.status === 'correct' ? '#F0FDF4'
-                  : item.status === 'wrong' || item.status === 'multiple' ? '#FEF2F2'
-                  : '#F9FAFB',
+                backgroundColor: item.status === 'correct' ? '#ECF9F2'
+                  : item.status === 'wrong' || item.status === 'multiple' ? '#FFF0ED'
+                  : '#F2EBDF',
                 borderLeftColor: statusColors[item.status as keyof typeof statusColors],
               },
             ]}>
@@ -259,7 +262,7 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
 
             {item.explanation && (
               <View style={styles.explanationRow}>
-                <Info size={13} color="#92400E" style={{ marginRight: 6 }} />
+                <Info size={13} color={palette.warning} style={{ marginRight: 6 }} />
                 <Text style={styles.explanationText}>{item.explanation}</Text>
               </View>
             )}
@@ -267,7 +270,6 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
         ))}
       </View>
 
-      {/* Action Buttons */}
       <View style={styles.actionRow}>
         <TouchableOpacity
           style={styles.saveBtn}
@@ -277,7 +279,7 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
             navigation.navigate('GroupDetail', { groupId: exam.id } as any);
           }}
         >
-          <Save size={16} color="#fff" />
+          <Save size={16} color={palette.white} />
           <Text style={styles.saveBtnText}>Kaydet ve Bitir</Text>
         </TouchableOpacity>
 
@@ -289,7 +291,7 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
             navigation.goBack();
           }}
         >
-          <CameraPlus size={16} color="#fff" />
+          <CameraPlus size={16} color={palette.white} />
           <Text style={styles.moreBtnText}>Başka Tara</Text>
         </TouchableOpacity>
       </View>
@@ -298,111 +300,119 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7F8FA' },
+  container: { flex: 1, backgroundColor: palette.canvas },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
 
-  // Loading
   loadingCard: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
+    backgroundColor: palette.card,
+    borderRadius: radii.lg,
     padding: 28,
     alignItems: 'center',
     width: '90%',
+    borderWidth: 1,
+    borderColor: palette.border,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
+    shadowOpacity: 0.2,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 4,
   },
-  loadingTitle: { fontSize: 18, fontWeight: '700', color: '#111827', marginTop: 16, marginBottom: 8 },
-  loadingSubtext: { fontSize: 13, color: '#6B7280', textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+  loadingTitle: { fontSize: 19, fontWeight: '800', color: palette.ink, marginTop: 16, marginBottom: 8 },
+  loadingSubtext: { fontSize: 13, color: palette.muted, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
   backBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: radii.sm,
     borderWidth: 1.5,
-    borderColor: '#F4511E',
+    borderColor: palette.accent,
   },
-  backBtnText: { color: '#F4511E', fontWeight: '700', fontSize: 14 },
+  backBtnText: { color: palette.accent, fontWeight: '800', fontSize: 14 },
 
-  // Error
   errorCard: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
+    backgroundColor: palette.card,
+    borderRadius: radii.lg,
     padding: 28,
     alignItems: 'center',
     width: '90%',
+    borderWidth: 1,
+    borderColor: '#EAB8B1',
     shadowColor: '#000',
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.18,
     shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 4,
   },
-  errorTitle: { fontSize: 18, fontWeight: '700', color: '#111827', marginTop: 12, marginBottom: 8 },
-  errorMsg: { fontSize: 13, color: '#6B7280', textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+  errorTitle: { fontSize: 18, fontWeight: '800', color: palette.ink, marginTop: 12, marginBottom: 8 },
+  errorMsg: { fontSize: 13, color: palette.muted, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
   retryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#DC2626',
+    backgroundColor: palette.negative,
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 12,
+    borderRadius: radii.sm,
   },
-  retryBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  retryBtnText: { color: palette.white, fontWeight: '800', fontSize: 14 },
 
-  // Preview image
-  previewImage: { width: '100%', height: 200, backgroundColor: '#1A1D23' },
+  previewImage: {
+    width: '100%',
+    height: 220,
+    backgroundColor: '#182329',
+    borderBottomLeftRadius: radii.lg,
+    borderBottomRightRadius: radii.lg,
+  },
 
-  // Cards
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: palette.card,
     margin: 16,
     marginBottom: 0,
     padding: 16,
-    borderRadius: 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
     elevation: 2,
   },
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#111827',
+    fontSize: 16,
+    fontWeight: '800',
+    color: palette.ink,
     marginBottom: 14,
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: '#EDE4D5',
   },
 
-  // Student
   studentRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   studentAvatar: {
     width: 46,
     height: 46,
-    borderRadius: 12,
-    backgroundColor: '#FEF2ED',
+    borderRadius: radii.md,
+    backgroundColor: palette.primarySoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   studentInfo: { flex: 1 },
-  studentName: { fontSize: 16, fontWeight: '700', color: '#111827' },
-  studentNo: { fontSize: 13, color: '#6B7280', marginTop: 2 },
+  studentName: { fontSize: 17, fontWeight: '800', color: palette.ink },
+  studentNo: { fontSize: 13, color: palette.muted, marginTop: 2 },
 
-  // Stats
   statsRow: { flexDirection: 'row', gap: 8 },
-  statBox: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 10 },
+  statBox: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: radii.sm },
   statNum: { fontSize: 20, fontWeight: '800' },
-  statLabel: { fontSize: 11, color: '#6B7280', marginTop: 3 },
+  statLabel: { fontSize: 11, color: palette.muted, marginTop: 3 },
 
-  // Question blocks
   questionBlock: {
     marginBottom: 10,
-    borderRadius: 10,
+    borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: palette.border,
     overflow: 'hidden',
   },
   questionHeader: {
@@ -413,46 +423,45 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderLeftWidth: 4,
   },
-  qNoText: { fontSize: 14, fontWeight: '700', color: '#374151' },
+  qNoText: { fontSize: 14, fontWeight: '800', color: palette.ink },
   answerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopColor: '#EEE5D6',
     gap: 8,
   },
-  answerLabel: { width: 90, fontSize: 12, color: '#6B7280', fontWeight: '600' },
+  answerLabel: { width: 90, fontSize: 12, color: palette.muted, fontWeight: '700' },
   bubblesRow: { flexDirection: 'row', gap: 6 },
   bubble: {
     width: 28,
     height: 28,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#D1D5DB',
+    borderColor: palette.border,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: palette.card,
   },
-  bubbleText: { fontSize: 12, color: '#9CA3AF', fontWeight: '700' },
-  bubbleTextActive: { color: '#fff' },
-  bubbleCorrect: { backgroundColor: '#059669', borderColor: '#059669' },
-  bubbleWrong: { backgroundColor: '#DC2626', borderColor: '#DC2626' },
-  bubbleMultiple: { backgroundColor: '#FCD34D', borderColor: '#D97706' },
-  blankText: { fontSize: 13, color: '#9CA3AF', fontStyle: 'italic' },
+  bubbleText: { fontSize: 12, color: palette.muted, fontWeight: '700' },
+  bubbleTextActive: { color: palette.white },
+  bubbleCorrect: { backgroundColor: palette.positive, borderColor: palette.positive },
+  bubbleWrong: { backgroundColor: palette.negative, borderColor: palette.negative },
+  bubbleMultiple: { backgroundColor: '#F2C06A', borderColor: palette.warning },
+  blankText: { fontSize: 13, color: palette.muted, fontStyle: 'italic' },
   explanationRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#FFFBEB',
+    backgroundColor: '#FFF4E0',
     borderTopWidth: 1,
-    borderTopColor: '#FEF3C7',
+    borderTopColor: '#EDD6B3',
   },
-  explanationText: { flex: 1, fontSize: 12, color: '#92400E', lineHeight: 18 },
+  explanationText: { flex: 1, fontSize: 12, color: '#7B541F', lineHeight: 18 },
 
-  // Action buttons
   actionRow: { flexDirection: 'row', margin: 16, gap: 10 },
   saveBtn: {
     flex: 2,
@@ -460,28 +469,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#111827',
+    backgroundColor: palette.primary,
     paddingVertical: 14,
-    borderRadius: 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
+    borderRadius: radii.md,
+    shadowColor: '#0B534D',
+    shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
   },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  saveBtnText: { color: palette.white, fontWeight: '800', fontSize: 14 },
   moreBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#F4511E',
+    backgroundColor: palette.accent,
     paddingVertical: 14,
-    borderRadius: 14,
-    shadowColor: '#F4511E',
-    shadowOpacity: 0.3,
+    borderRadius: radii.md,
+    shadowColor: palette.accent,
+    shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 4,
   },
-  moreBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  moreBtnText: { color: palette.white, fontWeight: '800', fontSize: 14 },
 });

@@ -11,12 +11,13 @@ import ReactNativeBlobUtil from 'react-native-blob-util';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import { API_BASE_URL, processForm } from '../api/omrApi';
 import * as XLSX from 'xlsx';
+import { palette, radii } from '../theme/palette';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GroupDetail'>;
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
-const AVATAR_COLORS = ['#F4511E', '#0EA5E9', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899', '#14B8A6', '#6366F1'];
+const AVATAR_COLORS = ['#C66A44', '#0F766E', '#6B5CA5', '#2E8A68', '#A96A2A', '#1E6085', '#8A4A57', '#3D6E8A'];
 const getAvatarColor = (name: string) => {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
@@ -38,7 +39,6 @@ const SwipeableResultItem = ({ res, score, onPress, onDelete }: { res: any, scor
     },
     onPanResponderRelease: (evt, gestureState) => {
       if (gestureState.dx < -SCREEN_WIDTH * 0.3) {
-        // Threshold passed, delete
         Animated.timing(swipeAnim, {
           toValue: -SCREEN_WIDTH,
           duration: 200,
@@ -47,7 +47,6 @@ const SwipeableResultItem = ({ res, score, onPress, onDelete }: { res: any, scor
           onDelete();
         });
       } else {
-        // Reset
         Animated.spring(swipeAnim, {
           toValue: 0,
           useNativeDriver: true,
@@ -90,7 +89,7 @@ const SwipeableResultItem = ({ res, score, onPress, onDelete }: { res: any, scor
             </View>
             <Text style={styles.resultScore}>{score.toFixed(2)}</Text>
           </View>
-          <ChevronRight size={18} color="#D1D5DB" />
+          <ChevronRight size={18} color={palette.muted} />
         </TouchableOpacity>
       </Animated.View>
     </View>
@@ -105,11 +104,9 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
 
   const group = groups.find(g => g.id === groupId);
 
-  // Zombi (askıda kalmış) taramaları temizle
   useEffect(() => {
     if (!group) return;
     const now = Date.now();
-    // 90 saniyeden fazla süredir pending olanlar zombi sayılır (uygulama kapanmış vs olabilir)
     const zombies = (group.results || []).filter(
       (r: any) => r.pending && (now - (r.scannedAt || 0)) > 90000
     );
@@ -118,7 +115,6 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
     });
   }, [group?.id]);
 
-  // Kamera ekranından dönen fotoğrafı al ve işle
   useEffect(() => {
     const uri = route.params.capturedImageUri;
     if (uri && uri !== processedUriRef.current && group) {
@@ -144,7 +140,6 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
     });
   };
 
-  // Kamera ekranından dönen fotoğrafı işle
   const handleImageCaptured = (imageUri: string) => {
     const pendingId = Math.random().toString(36).substr(2, 9);
     addStudentResult(group.id, {
@@ -179,7 +174,6 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
         return;
       }
 
-      // Grade it
       let correct = 0;
       let wrong = 0;
       let blank = 0;
@@ -219,7 +213,6 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
     } catch (err: any) {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError' || err.code === 'ERR_CANCELED' || err.message === 'canceled') {
-        // Eğer ağ bağlantısı vs sebebiyle erken iptal edildiyse listede asılı kalmaması için.
         removeStudentResult(group.id, pendingId);
         return;
       }
@@ -315,7 +308,7 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
   };
 
   const handleResultPress = (res: any) => {
-    if (res.pending) return; // tıklanamaz
+    if (res.pending) return;
     navigation.navigate('ResultDetail', { groupId: group.id, resultId: res.id });
   };
 
@@ -327,11 +320,10 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-      {/* Header Card */}
       <View style={styles.headerCard}>
         <View style={styles.headerTop}>
           <View style={styles.headerIconBox}>
-            <BookOpen size={24} color="#F4511E" />
+            <BookOpen size={24} color={palette.primary} />
           </View>
           <View style={styles.headerInfo}>
             <Text style={styles.headerTitle}>{group.name}</Text>
@@ -342,23 +334,22 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
         <View style={styles.statusRow}>
           {hasAnswerKey ? (
             <View style={[styles.statusBadge, styles.statusGreen]}>
-              <CheckCircle size={12} color="#059669" style={{ marginRight: 4 }} />
+              <CheckCircle size={12} color={palette.positive} style={{ marginRight: 4 }} />
               <Text style={styles.statusGreenText}>Cevap Anahtarı Hazır</Text>
             </View>
           ) : (
             <View style={[styles.statusBadge, styles.statusOrange]}>
-              <AlertCircle size={12} color="#D97706" style={{ marginRight: 4 }} />
+              <AlertCircle size={12} color={palette.warning} style={{ marginRight: 4 }} />
               <Text style={styles.statusOrangeText}>Cevap Anahtarı Girilmemiş</Text>
             </View>
           )}
           <View style={styles.statusBadge}>
-            <FileText size={12} color="#6B7280" style={{ marginRight: 4 }} />
+            <FileText size={12} color={palette.muted} style={{ marginRight: 4 }} />
             <Text style={styles.statusText}>{completedResults.length} Tarama</Text>
           </View>
         </View>
       </View>
 
-      {/* Action Buttons */}
       <View style={styles.actionsCard}>
         <View style={styles.actionRow}>
           <TouchableOpacity
@@ -366,7 +357,7 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
             onPress={() => navigation.navigate('ExamConfig', { exam: group as any })}
             activeOpacity={0.75}
           >
-            <Key size={16} color="#374151" />
+            <Key size={16} color={palette.ink} />
             <Text style={styles.actionBtnText}>Cevap Anahtarı</Text>
           </TouchableOpacity>
 
@@ -375,7 +366,7 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
             onPress={handleScan}
             activeOpacity={0.85}
           >
-            <Camera size={16} color="#FFFFFF" />
+            <Camera size={16} color={palette.white} />
             <Text style={styles.scanBtnText}>Tara</Text>
           </TouchableOpacity>
         </View>
@@ -387,27 +378,25 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
           disabled={downloading}
         >
           {downloading
-            ? <ActivityIndicator size="small" color="#F4511E" />
-            : <Download size={16} color="#F4511E" />}
+            ? <ActivityIndicator size="small" color={palette.accent} />
+            : <Download size={16} color={palette.accent} />}
           <Text style={styles.downloadBtnText}>{downloading ? 'İndiriliyor...' : 'Optik Formu İndir'}</Text>
         </TouchableOpacity>
 
         {completedResults.length > 0 && (
           <TouchableOpacity style={styles.excelBtn} onPress={handleExportExcel} activeOpacity={0.85}>
-            <FileSpreadsheet size={16} color="#FFFFFF" />
+            <FileSpreadsheet size={16} color={palette.white} />
             <Text style={styles.excelBtnText}>Sonuçları Excel'e Aktar</Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Scan Results */}
       <View style={styles.resultsSection}>
         <Text style={styles.sectionTitle}>Tarama Sonuçları</Text>
 
-        {/* Pending scans */}
         {pendingResults.map((res: any, index: number) => (
           <View key={res.id || `pending-${index}`} style={[styles.resultCard, styles.resultCardPending]}>
-            <ActivityIndicator size="small" color="#D97706" style={{ marginRight: 12 }} />
+            <ActivityIndicator size="small" color={palette.warning} style={{ marginRight: 12 }} />
             <View style={styles.resultInfo}>
               <Text style={styles.pendingText}>Taranıyor...</Text>
               <Text style={styles.pendingSubtext}>Optik form okunuyor</Text>
@@ -415,11 +404,10 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
           </View>
         ))}
 
-        {/* Completed scans */}
         {completedResults.length === 0 && pendingResults.length === 0 ? (
           <View style={styles.emptyResultsBox}>
             <View style={styles.emptyResultsIconWrap}>
-              <FileX size={34} color="#D1D5DB" />
+              <FileX size={34} color={palette.border} />
             </View>
             <Text style={styles.emptyResultsText}>Henüz form taranmamış</Text>
             <Text style={styles.emptyResultsSubtext}>Yukarıdaki "Tara" butonunu kullanarak başlayın</Text>
@@ -445,51 +433,62 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f0f2f5' },
+  container: { flex: 1, backgroundColor: palette.canvas },
   scrollContent: { padding: 16, paddingBottom: 30 },
   centered: { alignItems: 'center', justifyContent: 'center' },
-  emptyText: { textAlign: 'center', color: '#999', marginTop: 40, fontSize: 16 },
+  emptyText: { textAlign: 'center', color: palette.muted, marginTop: 40, fontSize: 16 },
 
-  // Header Card
   headerCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: palette.card,
+    borderRadius: radii.lg,
     padding: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
+    borderWidth: 1,
+    borderColor: palette.border,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
     elevation: 3,
   },
   headerTop: { flexDirection: 'row', alignItems: 'center' },
   headerIconBox: {
     width: 52,
     height: 52,
-    borderRadius: 14,
-    backgroundColor: '#FEF2ED',
+    borderRadius: radii.md,
+    backgroundColor: palette.primarySoft,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
   },
   headerInfo: { flex: 1 },
-  headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#1f2937' },
-  headerSubtitle: { fontSize: 14, color: '#9ca3af', marginTop: 2 },
+  headerTitle: { fontSize: 23, fontWeight: '800', color: palette.ink },
+  headerSubtitle: { fontSize: 14, color: palette.muted, marginTop: 2 },
   statusRow: { flexDirection: 'row', gap: 8, marginTop: 14, flexWrap: 'wrap' },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  statusText: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
-  statusGreen: { backgroundColor: '#ECFDF5' },
-  statusGreenText: { fontSize: 12, color: '#059669', fontWeight: '600' },
-  statusOrange: { backgroundColor: '#FFFBEB' },
-  statusOrangeText: { fontSize: 12, color: '#D97706', fontWeight: '600' },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: palette.mist,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radii.sm,
+  },
+  statusText: { fontSize: 12, color: palette.muted, fontWeight: '700' },
+  statusGreen: { backgroundColor: '#E4F6EE' },
+  statusGreenText: { fontSize: 12, color: palette.positive, fontWeight: '700' },
+  statusOrange: { backgroundColor: '#FFF0DF' },
+  statusOrangeText: { fontSize: 12, color: palette.warning, fontWeight: '700' },
 
-  // Actions Card
   actionsCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: palette.card,
+    borderRadius: radii.lg,
     padding: 16,
     marginTop: 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
+    borderWidth: 1,
+    borderColor: palette.border,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.16,
     shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
     elevation: 3,
   },
   actionRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
@@ -498,127 +497,114 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f9fafb',
+    backgroundColor: palette.mist,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: palette.border,
     gap: 6,
   },
-  actionBtnText: { color: '#374151', fontWeight: '700', fontSize: 14 },
-  scanBtn: { backgroundColor: '#f4511e', borderColor: '#f4511e' },
-  scanBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  actionBtnText: { color: palette.ink, fontWeight: '800', fontSize: 14 },
+  scanBtn: { backgroundColor: palette.primary, borderColor: palette.primary },
+  scanBtnText: { color: palette.white, fontWeight: '800', fontSize: 14 },
   downloadBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 13,
-    borderRadius: 12,
+    borderRadius: radii.md,
     borderWidth: 1.5,
-    borderColor: '#F4511E',
+    borderColor: palette.accent,
     gap: 6,
     marginTop: 10,
   },
-  downloadBtnText: { color: '#F4511E', fontWeight: '700', fontSize: 14 },
+  downloadBtnText: { color: palette.accent, fontWeight: '800', fontSize: 14 },
   downloadBtnDisabled: { opacity: 0.5 },
   excelBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 13,
-    borderRadius: 12,
-    backgroundColor: '#059669',
+    borderRadius: radii.md,
+    backgroundColor: '#2E8A68',
     marginTop: 10,
     gap: 6,
   },
-  excelBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  excelBtnText: { color: palette.white, fontWeight: '800', fontSize: 14 },
 
-  // Results Section
   resultsSection: { marginTop: 20 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937', marginBottom: 12, paddingHorizontal: 4 },
+  sectionTitle: { fontSize: 19, fontWeight: '800', color: palette.ink, marginBottom: 12, paddingHorizontal: 4 },
 
-  // Result Card — marginBottom buraya değil swipeContainer'a taşındı
   resultCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: palette.card,
     padding: 14,
-    borderRadius: 14,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
   resultCardPending: {
-    backgroundColor: '#fffbeb',
+    backgroundColor: '#FFF4E7',
     borderWidth: 1,
-    borderColor: '#fde68a',
+    borderColor: '#F0D4AD',
     borderStyle: 'dashed',
   },
-  pendingDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#f59e0b',
-    marginRight: 12,
-  },
-  pendingText: { fontSize: 15, fontWeight: 'bold', color: '#92400e' },
-  pendingSubtext: { fontSize: 12, color: '#b45309', marginTop: 2 },
+  pendingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: palette.warning, marginRight: 12 },
+  pendingText: { fontSize: 15, fontWeight: '800', color: '#7A4F1A' },
+  pendingSubtext: { fontSize: 12, color: '#9A6A29', marginTop: 2 },
 
   resultLeft: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   resultAvatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#f4511e',
+    backgroundColor: palette.accent,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
-  resultAvatarText: { color: '#fff', fontWeight: 'bold', fontSize: 17 },
+  resultAvatarText: { color: palette.white, fontWeight: '800', fontSize: 17 },
   resultInfo: { flex: 1 },
-  resultName: { fontSize: 15, fontWeight: 'bold', color: '#1f2937' },
-  resultNo: { fontSize: 12, color: '#9ca3af', marginTop: 2 },
+  resultName: { fontSize: 15, fontWeight: '800', color: palette.ink },
+  resultNo: { fontSize: 12, color: palette.muted, marginTop: 2 },
 
   resultRight: { alignItems: 'flex-end', marginRight: 8 },
   resultStats: { flexDirection: 'row', gap: 8 },
-  statCorrect: { fontSize: 13, fontWeight: 'bold', color: '#16a34a' },
-  statWrong: { fontSize: 13, fontWeight: 'bold', color: '#dc2626' },
-  statBlank: { fontSize: 13, fontWeight: 'bold', color: '#9ca3af' },
-  resultScore: { fontSize: 14, color: '#2563eb', fontWeight: 'bold', marginTop: 4 },
+  statCorrect: { fontSize: 13, fontWeight: '800', color: palette.positive },
+  statWrong: { fontSize: 13, fontWeight: '800', color: palette.negative },
+  statBlank: { fontSize: 13, fontWeight: '800', color: palette.muted },
+  resultScore: { fontSize: 14, color: palette.primary, fontWeight: '800', marginTop: 4 },
 
-
-  // Empty results
   emptyResultsBox: { alignItems: 'center', paddingVertical: 30 },
   emptyResultsIconWrap: {
     width: 72,
     height: 72,
-    borderRadius: 18,
-    backgroundColor: '#F3F4F6',
+    borderRadius: radii.md,
+    backgroundColor: palette.mist,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
   },
-  emptyResultsText: { fontSize: 16, fontWeight: '600', color: '#6B7280' },
-  emptyResultsSubtext: { fontSize: 13, color: '#9CA3AF', marginTop: 4 },
+  emptyResultsText: { fontSize: 16, fontWeight: '700', color: palette.muted },
+  emptyResultsSubtext: { fontSize: 13, color: palette.muted, marginTop: 4 },
 
-  // Swipeable — shadow burada, resultCard'da değil
   swipeContainer: {
     marginBottom: 10,
-    borderRadius: 14,
+    borderRadius: radii.md,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
     elevation: 2,
   },
   deleteBackground: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#DC2626',
+    backgroundColor: palette.negative,
     justifyContent: 'center',
     alignItems: 'flex-end',
     paddingRight: 24,
   },
-  deleteText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
+  deleteText: { color: palette.white, fontWeight: '800', fontSize: 16 },
 });

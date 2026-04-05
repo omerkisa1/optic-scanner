@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { GroupsScreen } from '../screens/GroupsScreen';
@@ -9,6 +9,7 @@ import { ScanResultScreen } from '../screens/ScanResultScreen';
 import { ResultDetailScreen } from '../screens/ResultDetailScreen';
 import { CameraScreen } from '../screens/CameraScreen';
 import { Exam } from '../types';
+import { palette } from '../theme/palette';
 
 export type RootStackParamList = {
   Groups: undefined;
@@ -21,17 +22,31 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+const appTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    background: palette.canvas,
+    card: palette.dark,
+    text: palette.white,
+    border: palette.dark,
+    primary: palette.accent,
+  },
+};
+
 export const AppNavigator = () => {
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={appTheme}>
       <Stack.Navigator
         initialRouteName="Groups"
         screenOptions={{
-          headerStyle: { backgroundColor: '#FFFFFF' },
-          headerTintColor: '#111827',
-          headerTitleStyle: { fontWeight: '700', fontSize: 17 },
+          headerStyle: { backgroundColor: palette.dark },
+          headerTintColor: palette.white,
+          headerTitleStyle: { fontWeight: '800', fontSize: 18 },
           headerShadowVisible: false,
-          contentStyle: { backgroundColor: '#F7F8FA' },
+          headerBackTitleVisible: false,
+          contentStyle: { backgroundColor: palette.canvas },
+          animation: 'slide_from_right',
         }}
       >
         <Stack.Screen

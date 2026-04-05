@@ -4,6 +4,7 @@ import { Save } from 'lucide-react-native';
 import { useStore } from '../store/useStore';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import { palette, radii } from '../theme/palette';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ExamConfig'>;
 
@@ -37,7 +38,6 @@ export const ExamConfigScreen = ({ route, navigation }: Props) => {
 
   const renderHeader = () => (
     <View style={styles.headerWrap}>
-      {/* Progress Bar */}
       <View style={styles.progressCard}>
         <View style={styles.progressTextRow}>
           <Text style={styles.progressLabel}>Yanıtlanan Sorular</Text>
@@ -51,7 +51,6 @@ export const ExamConfigScreen = ({ route, navigation }: Props) => {
         </View>
       </View>
 
-      {/* Column Headers */}
       <View style={styles.colHeaderRow}>
         <View style={styles.qNoCol} />
         {CHOICE_LABELS.map(val => (
@@ -104,7 +103,7 @@ export const ExamConfigScreen = ({ route, navigation }: Props) => {
       />
       <View style={styles.footer}>
         <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.85}>
-          <Save size={18} color="#fff" />
+          <Save size={18} color={palette.white} />
           <Text style={styles.saveBtnText}>Cevap Anahtarını Kaydet</Text>
         </TouchableOpacity>
       </View>
@@ -113,31 +112,30 @@ export const ExamConfigScreen = ({ route, navigation }: Props) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7F8FA' },
+  container: { flex: 1, backgroundColor: palette.canvas },
   listContent: { paddingBottom: 100 },
 
-  // Header
-  headerWrap: { backgroundColor: '#F7F8FA' },
+  headerWrap: { backgroundColor: palette.canvas },
   progressCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: palette.dark,
     margin: 16,
     marginBottom: 0,
     padding: 16,
-    borderRadius: 14,
+    borderRadius: radii.lg,
     shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
   progressTextRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  progressLabel: { fontSize: 13, color: '#6B7280', fontWeight: '600' },
-  progressCount: { fontSize: 13, color: '#6B7280' },
-  progressCountBold: { fontSize: 16, fontWeight: '800', color: '#F4511E' },
-  progressCountTotal: { fontSize: 13, color: '#9CA3AF' },
-  progressBarBg: { height: 6, backgroundColor: '#F3F4F6', borderRadius: 3, overflow: 'hidden' },
-  progressBarFill: { height: 6, backgroundColor: '#F4511E', borderRadius: 3 },
+  progressLabel: { fontSize: 13, color: '#B9C7CA', fontWeight: '700' },
+  progressCount: { fontSize: 13, color: '#B9C7CA' },
+  progressCountBold: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
+  progressCountTotal: { fontSize: 13, color: '#9CB0B5' },
+  progressBarBg: { height: 7, backgroundColor: '#22373D', borderRadius: radii.pill, overflow: 'hidden' },
+  progressBarFill: { height: 7, backgroundColor: palette.accent, borderRadius: radii.pill },
 
-  // Column header
   colHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -147,65 +145,62 @@ const styles = StyleSheet.create({
   },
   qNoCol: { width: 40 },
   optionCol: { flex: 1, alignItems: 'center' },
-  colHeaderText: { fontSize: 15, fontWeight: '700', color: '#374151' },
+  colHeaderText: { fontSize: 15, fontWeight: '800', color: palette.ink },
 
-  // Question row
   questionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 6,
   },
-  questionRowEven: { backgroundColor: '#FAFAFA' },
-  questionNo: { width: 40, fontSize: 14, fontWeight: '700', color: '#374151' },
+  questionRowEven: { backgroundColor: '#EFE8DA' },
+  questionNo: { width: 40, fontSize: 15, fontWeight: '800', color: palette.ink },
 
-  // Bubble
   bubble: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
+    borderWidth: 1.8,
+    borderColor: palette.border,
+    backgroundColor: palette.card,
     alignItems: 'center',
     justifyContent: 'center',
   },
   bubbleSelected: {
-    backgroundColor: '#F4511E',
-    borderColor: '#F4511E',
+    backgroundColor: palette.primary,
+    borderColor: palette.primary,
   },
   bubbleSelectedText: {
-    color: '#FFFFFF',
+    color: palette.white,
     fontWeight: '800',
     fontSize: 14,
   },
 
-  // Footer
   footer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: palette.card,
     paddingHorizontal: 16,
     paddingVertical: 12,
     paddingBottom: 28,
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopWidth: 1.2,
+    borderTopColor: palette.border,
   },
   saveBtn: {
-    backgroundColor: '#F4511E',
+    backgroundColor: palette.accent,
     paddingVertical: 14,
-    borderRadius: 14,
+    borderRadius: radii.md,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    shadowColor: '#F4511E',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
+    shadowColor: palette.accent,
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 3 },
     elevation: 5,
   },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  saveBtnText: { color: palette.white, fontWeight: '800', fontSize: 15 },
 });

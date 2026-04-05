@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, Alert, Modal, StatusBar,
@@ -9,12 +9,13 @@ import {
 import { useStore } from '../store/useStore';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import { palette, radii } from '../theme/palette';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Groups'>;
 
 const AVATAR_COLORS = [
-  '#F4511E', '#0EA5E9', '#8B5CF6', '#10B981',
-  '#F59E0B', '#EC4899', '#14B8A6', '#6366F1',
+  '#C66A44', '#0F766E', '#6B5CA5', '#2E8A68',
+  '#A96A2A', '#1E6085', '#8A4A57', '#3D6E8A',
 ];
 const getAvatarColor = (name: string) => {
   let h = 0;
@@ -30,6 +31,16 @@ export const GroupsScreen = ({ navigation }: Props) => {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editGroupId, setEditGroupId] = useState('');
   const [editName, setEditName] = useState('');
+
+  const dashboard = useMemo(() => {
+    const scannedCount = groups.reduce((acc, group) => acc + (group.results?.length || 0), 0);
+    const configuredCount = groups.filter(group => Object.keys(group.answerKey || {}).length > 0).length;
+    return {
+      scannedCount,
+      configuredCount,
+      groupCount: groups.length,
+    };
+  }, [groups]);
 
   const handleAddGroup = () => {
     if (!newGroupName.trim()) { Alert.alert('Uyarı', 'Grup adı boş olamaz.'); return; }
@@ -85,31 +96,31 @@ export const GroupsScreen = ({ navigation }: Props) => {
               onPress={() => handleEditName(item)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Pencil size={17} color="#9CA3AF" />
+              <Pencil size={17} color={palette.muted} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconBtn}
               onPress={() => handleDelete(item)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Trash2 size={17} color="#9CA3AF" />
+              <Trash2 size={17} color={palette.muted} />
             </TouchableOpacity>
           </View>
         </View>
 
         <View style={styles.cardBottom}>
           <View style={styles.badge}>
-            <FileText size={11} color="#6B7280" style={{ marginRight: 4 }} />
+            <FileText size={11} color={palette.muted} style={{ marginRight: 4 }} />
             <Text style={styles.badgeText}>{resultCount} Tarama</Text>
           </View>
           {hasAnswerKey ? (
             <View style={[styles.badge, styles.badgeGreen]}>
-              <CheckCircle size={11} color="#059669" style={{ marginRight: 4 }} />
+              <CheckCircle size={11} color={palette.positive} style={{ marginRight: 4 }} />
               <Text style={[styles.badgeText, styles.badgeGreenText]}>Cevap Anahtarı Hazır</Text>
             </View>
           ) : (
             <View style={[styles.badge, styles.badgeOrange]}>
-              <AlertCircle size={11} color="#D97706" style={{ marginRight: 4 }} />
+              <AlertCircle size={11} color={palette.warning} style={{ marginRight: 4 }} />
               <Text style={[styles.badgeText, styles.badgeOrangeText]}>Cevap Anahtarı Yok</Text>
             </View>
           )}
@@ -118,17 +129,39 @@ export const GroupsScreen = ({ navigation }: Props) => {
     );
   };
 
+  const renderDashboard = () => (
+    <View style={styles.dashboardCard}>
+      <Text style={styles.dashboardTitle}>Sınıf Panosu</Text>
+      <Text style={styles.dashboardSubtitle}>Tarama gruplarını yönetin ve her sınıfın ilerlemesini tek bakışta görün.</Text>
+      <View style={styles.metricRow}>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricValue}>{dashboard.groupCount}</Text>
+          <Text style={styles.metricLabel}>Grup</Text>
+        </View>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricValue}>{dashboard.scannedCount}</Text>
+          <Text style={styles.metricLabel}>Tarama</Text>
+        </View>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricValue}>{dashboard.configuredCount}</Text>
+          <Text style={styles.metricLabel}>Anahtar</Text>
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
-      <StatusBar backgroundColor="#FFFFFF" barStyle="dark-content" />
+      <StatusBar backgroundColor={palette.dark} barStyle="light-content" />
       <FlatList
         data={groups}
         keyExtractor={(item) => item.id}
         renderItem={renderGroupItem}
+        ListHeaderComponent={renderDashboard}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <View style={styles.emptyIconWrap}>
-              <FolderOpen size={44} color="#D1D5DB" />
+              <FolderOpen size={44} color={palette.border} />
             </View>
             <Text style={styles.emptyTitle}>Henüz grubunuz yok</Text>
             <Text style={styles.emptySubtext}>Aşağıdaki butona basarak ilk grubunuzu oluşturun.</Text>
@@ -137,12 +170,11 @@ export const GroupsScreen = ({ navigation }: Props) => {
         contentContainerStyle={styles.listContainer}
       />
 
-      <TouchableOpacity style={styles.fab} onPress={() => setShowModal(true)} activeOpacity={0.85}>
-        <Plus size={20} color="#fff" strokeWidth={2.5} />
+      <TouchableOpacity style={styles.fab} onPress={() => setShowModal(true)} activeOpacity={0.88}>
+        <Plus size={20} color={palette.white} strokeWidth={2.6} />
         <Text style={styles.fabText}>Grup Oluştur</Text>
       </TouchableOpacity>
 
-      {/* Yeni Grup Modal */}
       <Modal visible={showModal} transparent animationType="fade" onRequestClose={() => setShowModal(false)}>
         <View style={styles.overlay}>
           <View style={styles.modal}>
@@ -150,12 +182,12 @@ export const GroupsScreen = ({ navigation }: Props) => {
             <Text style={styles.inputLabel}>Grup / Sınıf Adı</Text>
             <TextInput
               style={styles.input} placeholder="Örn: 10-A Matematik"
-              placeholderTextColor="#9CA3AF" value={newGroupName}
+              placeholderTextColor={palette.muted} value={newGroupName}
               onChangeText={setNewGroupName} autoFocus
             />
             <Text style={styles.inputLabel}>Soru Sayısı</Text>
             <TextInput
-              style={styles.input} placeholder="1 – 30" placeholderTextColor="#9CA3AF"
+              style={styles.input} placeholder="1 – 30" placeholderTextColor={palette.muted}
               value={questionCount} onChangeText={setQuestionCount}
               keyboardType="numeric" maxLength={2}
             />
@@ -171,7 +203,6 @@ export const GroupsScreen = ({ navigation }: Props) => {
         </View>
       </Modal>
 
-      {/* Düzenleme Modal */}
       <Modal visible={editModalVisible} transparent animationType="fade" onRequestClose={() => setEditModalVisible(false)}>
         <View style={styles.overlay}>
           <View style={styles.modal}>
@@ -179,7 +210,7 @@ export const GroupsScreen = ({ navigation }: Props) => {
             <Text style={styles.inputLabel}>Yeni Grup Adı</Text>
             <TextInput
               style={styles.input} placeholder="Grup adı..."
-              placeholderTextColor="#9CA3AF" value={editName}
+              placeholderTextColor={palette.muted} value={editName}
               onChangeText={setEditName} autoFocus
             />
             <View style={styles.modalBtns}>
@@ -198,60 +229,157 @@ export const GroupsScreen = ({ navigation }: Props) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F7F8FA' },
-  listContainer: { padding: 16, paddingBottom: 100 },
+  container: { flex: 1, backgroundColor: palette.canvas },
+  listContainer: { padding: 16, paddingBottom: 120 },
+
+  dashboardCard: {
+    backgroundColor: palette.dark,
+    borderRadius: radii.lg,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+  dashboardTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: palette.white,
+    letterSpacing: 0.2,
+  },
+  dashboardSubtitle: {
+    marginTop: 6,
+    color: '#CAD7D9',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  metricRow: {
+    marginTop: 16,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  metricCard: {
+    flex: 1,
+    backgroundColor: '#1A3138',
+    borderRadius: radii.md,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2A4952',
+  },
+  metricValue: {
+    color: palette.white,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  metricLabel: {
+    color: '#A7B9BE',
+    fontSize: 12,
+    marginTop: 2,
+  },
 
   groupCard: {
-    backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, marginBottom: 12,
-    shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 }, elevation: 3,
+    backgroundColor: palette.card,
+    borderRadius: radii.lg,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 3,
   },
   cardTop: { flexDirection: 'row', alignItems: 'center' },
-  avatar: { width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  avatarText: { color: '#fff', fontWeight: '800', fontSize: 16, letterSpacing: 0.5 },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  avatarText: { color: palette.white, fontWeight: '800', fontSize: 16, letterSpacing: 0.5 },
   cardInfo: { flex: 1 },
-  groupTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
-  groupMeta: { fontSize: 13, color: '#9CA3AF', marginTop: 3 },
+  groupTitle: { fontSize: 17, fontWeight: '800', color: palette.ink },
+  groupMeta: { fontSize: 13, color: palette.muted, marginTop: 3 },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   iconBtn: { padding: 6 },
 
   cardBottom: {
     flexDirection: 'row', gap: 8, marginTop: 12,
-    paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6', flexWrap: 'wrap',
+    paddingTop: 12, borderTopWidth: 1, borderTopColor: '#ECE4D6', flexWrap: 'wrap',
   },
-  badge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3F4F6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  badgeText: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
-  badgeGreen: { backgroundColor: '#ECFDF5' },
-  badgeGreenText: { color: '#059669' },
-  badgeOrange: { backgroundColor: '#FFFBEB' },
-  badgeOrangeText: { color: '#D97706' },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: palette.mist,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radii.sm,
+  },
+  badgeText: { fontSize: 12, color: palette.muted, fontWeight: '700' },
+  badgeGreen: { backgroundColor: '#E4F6EE' },
+  badgeGreenText: { color: palette.positive },
+  badgeOrange: { backgroundColor: '#FFF0DF' },
+  badgeOrangeText: { color: palette.warning },
 
   emptyContainer: { alignItems: 'center', paddingTop: 80, paddingHorizontal: 32 },
-  emptyIconWrap: { width: 96, height: 96, borderRadius: 24, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: '#374151', marginBottom: 8 },
-  emptySubtext: { fontSize: 14, color: '#9CA3AF', textAlign: 'center', lineHeight: 22 },
+  emptyIconWrap: {
+    width: 96,
+    height: 96,
+    borderRadius: 24,
+    backgroundColor: palette.mist,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  emptyTitle: { fontSize: 20, fontWeight: '800', color: palette.ink, marginBottom: 8 },
+  emptySubtext: { fontSize: 14, color: palette.muted, textAlign: 'center', lineHeight: 22 },
 
   fab: {
     position: 'absolute', bottom: 24, left: 20, right: 20,
-    backgroundColor: '#F4511E', borderRadius: 16, paddingVertical: 15,
+    backgroundColor: palette.accent, borderRadius: radii.md, paddingVertical: 15,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    shadowColor: '#F4511E', shadowOpacity: 0.35, shadowRadius: 14,
+    shadowColor: palette.accent, shadowOpacity: 0.42, shadowRadius: 16,
     shadowOffset: { width: 0, height: 5 }, elevation: 8,
   },
-  fabText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  fabText: { color: palette.white, fontWeight: '800', fontSize: 16 },
 
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', paddingHorizontal: 20 },
-  modal: { backgroundColor: '#fff', borderRadius: 20, padding: 24 },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 20 },
-  inputLabel: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 },
+  overlay: { flex: 1, backgroundColor: 'rgba(14, 24, 31, 0.56)', justifyContent: 'center', paddingHorizontal: 20 },
+  modal: {
+    backgroundColor: palette.card,
+    borderRadius: radii.lg,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: palette.ink, marginBottom: 20 },
+  inputLabel: { fontSize: 13, fontWeight: '700', color: palette.ink, marginBottom: 6 },
   input: {
-    backgroundColor: '#F9FAFB', borderWidth: 1.5, borderColor: '#E5E7EB',
-    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 15, color: '#111827', marginBottom: 14,
+    backgroundColor: palette.white, borderWidth: 1.5, borderColor: palette.border,
+    borderRadius: radii.sm, paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 15, color: palette.ink, marginBottom: 14,
   },
   modalBtns: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  cancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center', backgroundColor: '#F3F4F6' },
-  cancelBtnText: { color: '#6B7280', fontWeight: '700', fontSize: 15 },
-  confirmBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center', backgroundColor: '#F4511E' },
-  confirmBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+    backgroundColor: palette.mist,
+  },
+  cancelBtnText: { color: palette.muted, fontWeight: '800', fontSize: 15 },
+  confirmBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+    backgroundColor: palette.primary,
+  },
+  confirmBtnText: { color: palette.white, fontWeight: '800', fontSize: 15 },
 });
