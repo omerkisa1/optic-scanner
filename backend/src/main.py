@@ -1,8 +1,16 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse, StreamingResponse
+import base64
 import io
+import json
+import os
 import re
+import shutil
+import tempfile
 import time
+import unicodedata
+from difflib import SequenceMatcher
+from typing import Dict, List, Tuple
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -15,6 +23,50 @@ try:
 except Exception as e:
     easy_reader = None
     print(f"[OCR] EasyOCR reader init failed: {e}")
+
+
+def _configure_tesseract() -> Tuple[bool, str]:
+    candidates = []
+
+    env_path = os.environ.get("TESSERACT_CMD") or os.environ.get("TESSERACT_PATH")
+    if env_path:
+        candidates.append(env_path)
+
+    which_path = shutil.which("tesseract")
+    if which_path:
+        candidates.append(which_path)
+
+    if os.name == "nt":
+        candidates.extend([
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        ])
+
+    seen = set()
+    for candidate in candidates:
+        if not candidate:
+            continue
+        normalized = os.path.normpath(candidate)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if not os.path.exists(normalized):
+            continue
+        try:
+            pytesseract.pytesseract.tesseract_cmd = normalized
+            _ = pytesseract.get_tesseract_version()
+            return True, normalized
+        except Exception:
+            continue
+
+    return False, ""
+
+
+TESSERACT_AVAILABLE, TESSERACT_CMD = _configure_tesseract()
+if TESSERACT_AVAILABLE:
+    print(f"[OCR] Tesseract configured: {TESSERACT_CMD}")
+else:
+    print("[OCR] Tesseract not found. Hybrid name OCR will run with EasyOCR-only fallback.")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -53,6 +105,8 @@ def _text_wh(font, text: str):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _ocr_lang() -> str:
+    if not TESSERACT_AVAILABLE:
+        return "eng"
     try:
         return "tur+eng" if "tur" in pytesseract.get_languages(config="") else "eng"
     except Exception:
@@ -60,6 +114,9 @@ def _ocr_lang() -> str:
 
 
 def _ocr_field(crop_gray: np.ndarray, lang: str) -> str:
+    if not TESSERACT_AVAILABLE:
+        return "Okunamadı"
+
     # Daha geniş kenar — bağlamı korur
     bordered = cv2.copyMakeBorder(crop_gray, 30, 30, 30, 30,
                                   cv2.BORDER_CONSTANT, value=255)
@@ -125,61 +182,461 @@ def _ocr_field(crop_gray: np.ndarray, lang: str) -> str:
     return best if best_score >= 1 else "Okunamadı"
 
 
-def _ocr_name_easyocr(roi_bgr: np.ndarray) -> str:
-    if easy_reader is None:
+def _name_post_process(raw: str) -> str:
+    cleaned = re.sub(r"[^a-zA-ZğüşıöçĞÜŞİÖÇ\s]", "", raw)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
         return ""
-    if roi_bgr is None or roi_bgr.size == 0:
-        return ""
 
-    working = roi_bgr
-    h, w = working.shape[:2]
-    if w > 0 and w < 800:
-        scale = 800.0 / float(w)
-        working = cv2.resize(working, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    words = []
+    for token in cleaned.split():
+        low = token.lower()
+        if not low:
+            continue
+        if len(low) == 1:
+            if low == "i":
+                words.append("İ")
+            elif low == "ı":
+                words.append("I")
+            else:
+                words.append(low.upper())
+            continue
 
-    gray = cv2.cvtColor(working, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(gray)
-    padded = cv2.copyMakeBorder(enhanced, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
+        if low[0] == "i":
+            words.append("İ" + low[1:])
+        elif low[0] == "ı":
+            words.append("I" + low[1:])
+        else:
+            words.append(low[0].upper() + low[1:])
 
-    results = easy_reader.readtext(padded, detail=1, paragraph=False)
+    return " ".join(words)
+
+
+def _easyocr_left_x(item) -> float:
+    try:
+        return float(item[0][0][0])
+    except Exception:
+        return float("inf")
+
+
+def _easyocr_extract_segments(results) -> List[Dict[str, float]]:
     if not results:
-        results = easy_reader.readtext(working, detail=1, paragraph=False)
-    if not results:
-        return ""
+        return []
 
-    texts = []
-    for item in results:
+    ordered = sorted(results, key=_easyocr_left_x)
+    segments = []
+    for item in ordered:
         if len(item) < 3:
             continue
         _, text, conf = item
-        stripped = text.strip()
-        if conf > 0.2 and len(stripped) > 0:
-            texts.append(stripped)
+        stripped = str(text).strip()
+        if not stripped:
+            continue
+        try:
+            conf_val = float(conf)
+        except Exception:
+            conf_val = 0.0
+        segments.append({"text": stripped, "conf": conf_val})
 
-    raw = " ".join(texts)
-    cleaned = re.sub(r"[^a-zA-ZğüşıöçĞÜŞİÖÇ\s]", "", raw)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return segments
 
-    if cleaned:
-        words = []
-        for token in cleaned.split():
-            low = token.lower()
-            if not low:
-                continue
-            if low[0] == "i":
-                words.append("İ" + low[1:])
-            elif low[0] == "ı":
-                words.append("I" + low[1:])
+
+def _easyocr_extract_text(results, conf_threshold: float = 0.15) -> str:
+    segments = _easyocr_extract_segments(results)
+    texts = [seg["text"] for seg in segments if seg["conf"] >= conf_threshold]
+    return " ".join(texts).strip()
+
+
+def _token_confidences_from_easyocr_segments(segments) -> List[float]:
+    if not segments:
+        return []
+
+    confidences = []
+    for seg in segments:
+        text = str(seg.get("text", ""))
+        conf = float(seg.get("conf", 0.0))
+        cleaned = re.sub(r"[^a-zA-ZğüşıöçĞÜŞİÖÇ\s]", " ", text)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        if not cleaned:
+            continue
+        token_count = len(cleaned.split())
+        confidences.extend([conf] * token_count)
+
+    return confidences
+
+
+def _img_to_base64_png(img: np.ndarray) -> str:
+    try:
+        ok, buffer = cv2.imencode(".png", img)
+        if not ok:
+            return ""
+        return base64.b64encode(buffer).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def _normalize_name_for_match(text: str) -> str:
+    if not text:
+        return ""
+
+    normalized = text.strip().lower()
+    normalized = normalized.replace("ı", "i").replace("İ", "i")
+    normalized = normalized.replace("ğ", "g").replace("ü", "u")
+    normalized = normalized.replace("ş", "s").replace("ö", "o").replace("ç", "c")
+
+    normalized = unicodedata.normalize("NFD", normalized)
+    normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    normalized = re.sub(r"[^a-z\s]", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+_TR_COMMON_FIRST_NAME_TOKENS = {
+    "enes", "ali", "ahmet", "mehmet", "mustafa", "yusuf", "ibrahim",
+    "emre", "mert", "berk", "onur", "okan", "serkan", "erhan",
+    "halil", "samet", "muhammed", "hamza", "fatih", "murat", "hakan",
+    "volkan", "ismail", "abdullah", "salih", "burak", "can", "kaan",
+    "baris", "cem", "bilal", "adem", "huseyin", "hasan", "recep",
+    "furkan", "umut", "talha", "malik", "melik", "arif",
+}
+
+_TR_COMMON_SURNAME_TOKENS = {
+    "arı", "koç", "yılmaz", "kaya", "demir", "çelik", "şahin",
+    "öztürk", "özdemir", "doğan", "aslan", "kaplan", "akın", "aksoy",
+    "kılıç", "arslan", "aydın", "karaca", "güneş", "kurt", "karataş",
+    "polat", "demirtaş", "albayrak", "yavuz", "çetin", "bozkurt",
+    "keskin", "acar", "koçak", "çakır", "duran", "turan", "tekin",
+    "şimşek", "çoban", "yıldız", "korkmaz", "kara", "taş", "soykan",
+}
+
+
+def _token_ocr_similarity(left: str, right: str) -> float:
+    left_norm = _normalize_name_for_match(left).replace(" ", "")
+    right_norm = _normalize_name_for_match(right).replace(" ", "")
+    if not left_norm or not right_norm:
+        return 0.0
+
+    # OCR'de sık karışan karakterler için daha düşük ikame maliyeti uygula.
+    confusion_groups = [
+        set("aliıioö01"),
+        set("rkhceğ"),
+        set("mn"),
+        set("uvüyw"),
+        set("stz"),
+        set("dtb"),
+        set("gq"),
+        set("çcj"),
+    ]
+
+    group_map: Dict[str, int] = {}
+    for idx, group in enumerate(confusion_groups):
+        for ch in group:
+            group_map[ch] = idx
+
+    n = len(left_norm)
+    m = len(right_norm)
+    dp = [[0.0] * (m + 1) for _ in range(n + 1)]
+
+    for i in range(n + 1):
+        dp[i][0] = float(i)
+    for j in range(m + 1):
+        dp[0][j] = float(j)
+
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            lch = left_norm[i - 1]
+            rch = right_norm[j - 1]
+
+            if lch == rch:
+                sub_cost = 0.0
+            elif lch in group_map and rch in group_map and group_map[lch] == group_map[rch]:
+                sub_cost = 0.2
             else:
-                words.append(low[0].upper() + low[1:])
-        cleaned = " ".join(words)
+                sub_cost = 1.0
 
-    return cleaned
+            best = min(
+                dp[i - 1][j] + 1.0,
+                dp[i][j - 1] + 1.0,
+                dp[i - 1][j - 1] + sub_cost,
+            )
+
+            if i > 1 and j > 1 and left_norm[i - 1] == right_norm[j - 2] and left_norm[i - 2] == right_norm[j - 1]:
+                best = min(best, dp[i - 2][j - 2] + 0.25)
+
+            dp[i][j] = best
+
+    distance = dp[n][m]
+    score = max(0.0, (1.0 - (distance / float(max(n, m)))) * 100.0)
+    return score
 
 
-def _ocr_name_hybrid(roi_bgr: np.ndarray, lang: str):
-    easy_result = _ocr_name_easyocr(roi_bgr)
+def _best_lexicon_token_match(token: str, lexicon: List[str]) -> Tuple[str, float, float]:
+    token_norm = _normalize_name_for_match(token).replace(" ", "")
+    if not token_norm:
+        return "", 0.0, 0.0
+
+    ranked = []
+    token_len = len(token_norm)
+    for candidate in lexicon:
+        candidate_norm = _normalize_name_for_match(candidate).replace(" ", "")
+        if not candidate_norm:
+            continue
+
+        # Kısa token'larda yanlış düzeltmeyi azaltmak için uzunluk farkını sıkı tut.
+        if token_len <= 3:
+            if abs(len(candidate_norm) - token_len) != 0:
+                continue
+        else:
+            if abs(len(candidate_norm) - token_len) > 1:
+                continue
+
+        sim = _token_ocr_similarity(token_norm, candidate_norm)
+        ranked.append((sim, candidate))
+
+    if not ranked:
+        return "", 0.0, 0.0
+
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    best_score, best_candidate = ranked[0]
+    second_score = ranked[1][0] if len(ranked) > 1 else 0.0
+    return best_candidate, best_score, second_score
+
+
+def _lexicon_candidates_for_index(index: int) -> List[str]:
+    if index <= 0:
+        return list(_TR_COMMON_FIRST_NAME_TOKENS)
+    if index == 1:
+        return list(_TR_COMMON_FIRST_NAME_TOKENS | _TR_COMMON_SURNAME_TOKENS)
+    return list(_TR_COMMON_SURNAME_TOKENS)
+
+
+def _apply_lexicon_name_correction(name_text: str, token_confidences: List[float]) -> Tuple[str, dict]:
+    if not name_text:
+        return "", {"applied": False, "changes": []}
+
+    tokens = [tok for tok in name_text.split() if tok]
+    if not tokens:
+        return name_text, {"applied": False, "changes": []}
+
+    corrected_tokens = []
+    changes = []
+
+    for idx, token in enumerate(tokens):
+        conf = token_confidences[idx] if idx < len(token_confidences) else 0.0
+        if conf >= 0.45 or len(token) < 2:
+            corrected_tokens.append(token)
+            continue
+
+        lexicon = _lexicon_candidates_for_index(idx)
+        best_word, best_score, second_score = _best_lexicon_token_match(token, lexicon)
+
+        threshold = 64.0 if len(token) <= 3 else 70.0
+        if (
+            best_word
+            and best_score >= threshold
+            and (best_score - second_score) >= 6.0
+            and token[0].lower() == best_word[0].lower()
+        ):
+            corrected = _name_post_process(best_word)
+            corrected_tokens.append(corrected)
+            changes.append(
+                {
+                    "from": token,
+                    "to": corrected,
+                    "confidence": round(conf, 3),
+                    "match_score": round(best_score, 2),
+                }
+            )
+        else:
+            corrected_tokens.append(token)
+
+    corrected_name = " ".join(corrected_tokens).strip()
+    return corrected_name, {"applied": corrected_name != name_text, "changes": changes}
+
+
+def _name_similarity_score(left: str, right: str) -> float:
+    left_norm = _normalize_name_for_match(left)
+    right_norm = _normalize_name_for_match(right)
+    if not left_norm or not right_norm:
+        return 0.0
+
+    char_ratio = SequenceMatcher(None, left_norm, right_norm).ratio()
+
+    left_tokens = left_norm.split()
+    right_tokens = right_norm.split()
+    token_ratio = 0.0
+    if left_tokens and right_tokens:
+        token_scores = []
+        for left_token in left_tokens:
+            best_token = max(SequenceMatcher(None, left_token, rt).ratio() for rt in right_tokens)
+            token_scores.append(best_token)
+        token_ratio = sum(token_scores) / float(len(token_scores))
+
+    first_name_ratio = 0.0
+    if left_tokens and right_tokens:
+        first_name_ratio = SequenceMatcher(None, left_tokens[0], right_tokens[0]).ratio()
+
+    weighted = (0.55 * char_ratio) + (0.35 * token_ratio) + (0.10 * first_name_ratio)
+    return weighted * 100.0
+
+
+def _parse_candidate_names(raw_json: str) -> List[str]:
+    if not raw_json:
+        return []
+
+    try:
+        parsed = json.loads(raw_json)
+    except Exception as e:
+        print(f"[OCR] candidate_names_json parse failed: {e}")
+        return []
+
+    if not isinstance(parsed, list):
+        print("[OCR] candidate_names_json is not a list")
+        return []
+
+    normalized = []
+    for item in parsed:
+        name = str(item).strip()
+        if name:
+            normalized.append(name)
+
+    return normalized
+
+
+def _match_candidate_name(
+    ocr_text: str,
+    candidate_names: List[str],
+    min_score: float = 72.0,
+    top_k: int = 3,
+) -> Tuple[str, float, List[dict]]:
+    if not ocr_text or not candidate_names:
+        return "", 0.0, []
+
+    scored = []
+    for candidate in candidate_names:
+        score = _name_similarity_score(ocr_text, candidate)
+        if score > 0.0:
+            scored.append((candidate, score))
+
+    if not scored:
+        return "", 0.0, []
+
+    scored.sort(key=lambda item: item[1], reverse=True)
+    top_matches = [
+        {"name": cand, "score": round(score, 2)}
+        for cand, score in scored[:top_k]
+    ]
+
+    best_candidate, best_score = scored[0]
+    if best_score >= min_score:
+        return best_candidate, best_score, top_matches
+
+    return "", best_score, top_matches
+
+
+def _ocr_name_easyocr(roi_bgr: np.ndarray):
+    debug = {
+        "rgb_result": "",
+        "gray_result": "",
+        "rgb_segments": [],
+        "gray_segments": [],
+        "selected_variant": "none",
+        "selected_segments": [],
+        "selected_token_confidences": [],
+        "roi_image_base64": "",
+        "roi_gray_image_base64": "",
+    }
+
+    if easy_reader is None:
+        return "", debug
+    if roi_bgr is None or roi_bgr.size == 0:
+        return "", debug
+
+    working = roi_bgr
+    _, w = working.shape[:2]
+    if w > 0 and w < 1000:
+        scale = 1000.0 / float(w)
+        working = cv2.resize(working, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+    padded = cv2.copyMakeBorder(
+        working,
+        30, 30, 30, 30,
+        cv2.BORDER_CONSTANT,
+        value=(255, 255, 255)
+    )
+
+    rgb = cv2.cvtColor(padded, cv2.COLOR_BGR2RGB)
+    gray = cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+
+    allowlist = "abcçdefgğhıijklmnoöprsştuüvyzABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ "
+
+    try:
+        results_rgb = easy_reader.readtext(
+            rgb,
+            detail=1,
+            paragraph=False,
+            allowlist=allowlist,
+        )
+    except Exception as e:
+        print(f"[OCR] EasyOCR RGB read failed: {e}")
+        results_rgb = []
+
+    try:
+        results_gray = easy_reader.readtext(
+            enhanced,
+            detail=1,
+            paragraph=False,
+            allowlist=allowlist,
+        )
+    except Exception as e:
+        print(f"[OCR] EasyOCR GRAY read failed: {e}")
+        results_gray = []
+
+    segments_rgb = _easyocr_extract_segments(results_rgb)
+    segments_gray = _easyocr_extract_segments(results_gray)
+
+    raw_rgb = " ".join(seg["text"] for seg in segments_rgb if seg["conf"] >= 0.15).strip()
+    raw_gray = " ".join(seg["text"] for seg in segments_gray if seg["conf"] >= 0.15).strip()
+
+    text_rgb = _name_post_process(raw_rgb)
+    text_gray = _name_post_process(raw_gray)
+
+    score_rgb = sum(1 for c in text_rgb if c.isalpha())
+    score_gray = sum(1 for c in text_gray if c.isalpha())
+
+    if score_rgb >= score_gray:
+        best = text_rgb
+        selected_variant = "rgb"
+        selected_segments = segments_rgb
+    else:
+        best = text_gray
+        selected_variant = "gray"
+        selected_segments = segments_gray
+
+    print(f"[OCR] EasyOCR RGB: '{text_rgb}' ({score_rgb}) | GRAY: '{text_gray}' ({score_gray})")
+
+    debug = {
+        "rgb_result": text_rgb,
+        "gray_result": text_gray,
+        "rgb_segments": segments_rgb,
+        "gray_segments": segments_gray,
+        "selected_variant": selected_variant,
+        "selected_segments": selected_segments,
+        "selected_token_confidences": _token_confidences_from_easyocr_segments(selected_segments),
+        "roi_image_base64": _img_to_base64_png(padded),
+        "roi_gray_image_base64": _img_to_base64_png(enhanced),
+    }
+
+    return best, debug
+
+
+def _ocr_name_hybrid(roi_bgr: np.ndarray, lang: str, candidate_names=None):
+    if candidate_names is None:
+        candidate_names = []
+
+    easy_result, easy_debug = _ocr_name_easyocr(roi_bgr)
 
     tess_result = ""
     if roi_bgr is not None and roi_bgr.size > 0:
@@ -198,24 +655,83 @@ def _ocr_name_hybrid(roi_bgr: np.ndarray, lang: str):
         candidates.append((tess_result, alpha_score, "tesseract"))
 
     if not candidates:
+        _, best_score, top_matches = _match_candidate_name("", candidate_names)
         debug = {
             "easyocr_result": easy_result,
+            "easyocr_rgb_result": easy_debug.get("rgb_result", ""),
+            "easyocr_gray_result": easy_debug.get("gray_result", ""),
+            "easyocr_selected_variant": easy_debug.get("selected_variant", "none"),
             "tesseract_result": tess_result,
+            "tesseract_available": TESSERACT_AVAILABLE,
             "selected": "none",
+            "pre_match_final": "",
+            "post_lexicon_final": "",
             "final": "",
+            "roi_image_base64": easy_debug.get("roi_image_base64", ""),
+            "roi_gray_image_base64": easy_debug.get("roi_gray_image_base64", ""),
+            "candidate_names_count": len(candidate_names),
+            "candidate_match_applied": False,
+            "candidate_match_name": "",
+            "candidate_match_score": round(best_score, 2),
+            "candidate_match_top3": top_matches,
+            "lexicon_correction_applied": False,
+            "lexicon_correction_changes": [],
         }
         return "", debug
 
     best = max(candidates, key=lambda x: x[1])
     print(f"[OCR] EasyOCR: '{easy_result}' | Tesseract: '{tess_result}' | Secilen: {best[2]} -> '{best[0]}'")
 
+    pre_match_final = best[0]
+    post_lexicon_final = pre_match_final
+    lexicon_applied = False
+    lexicon_changes = []
+
+    if not candidate_names:
+        token_confidences = easy_debug.get("selected_token_confidences", [])
+        corrected_name, lexicon_debug = _apply_lexicon_name_correction(pre_match_final, token_confidences)
+        lexicon_applied = bool(lexicon_debug.get("applied", False))
+        lexicon_changes = lexicon_debug.get("changes", [])
+        if corrected_name:
+            post_lexicon_final = corrected_name
+
+    matched_name, matched_score, top_matches = _match_candidate_name(post_lexicon_final, candidate_names)
+    candidate_applied = bool(matched_name)
+    final_text = matched_name if candidate_applied else post_lexicon_final
+
+    if candidate_applied:
+        print(
+            f"[OCR] Candidate match applied: '{post_lexicon_final}' -> '{final_text}' "
+            f"(score={matched_score:.2f})"
+        )
+
+    if lexicon_applied:
+        print(
+            f"[OCR] Lexicon correction applied: '{pre_match_final}' -> '{post_lexicon_final}'"
+        )
+
     debug = {
         "easyocr_result": easy_result,
+        "easyocr_rgb_result": easy_debug.get("rgb_result", ""),
+        "easyocr_gray_result": easy_debug.get("gray_result", ""),
+        "easyocr_selected_variant": easy_debug.get("selected_variant", "none"),
         "tesseract_result": tess_result,
+        "tesseract_available": TESSERACT_AVAILABLE,
         "selected": best[2],
-        "final": best[0],
+        "pre_match_final": pre_match_final,
+        "post_lexicon_final": post_lexicon_final,
+        "final": final_text,
+        "roi_image_base64": easy_debug.get("roi_image_base64", ""),
+        "roi_gray_image_base64": easy_debug.get("roi_gray_image_base64", ""),
+        "candidate_names_count": len(candidate_names),
+        "candidate_match_applied": candidate_applied,
+        "candidate_match_name": final_text if candidate_applied else "",
+        "candidate_match_score": round(matched_score, 2),
+        "candidate_match_top3": top_matches,
+        "lexicon_correction_applied": lexicon_applied,
+        "lexicon_correction_changes": lexicon_changes,
     }
-    return best[0], debug
+    return final_text, debug
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -461,6 +977,7 @@ async def generate_form(question_count: int = 20):
 async def process_form(
     file: UploadFile = File(...),
     question_count: int = Form(20),
+    candidate_names_json: str = Form(None),
 ):
     try:
         contents = await file.read()
@@ -471,6 +988,7 @@ async def process_form(
             return JSONResponse(status_code=400, content={"error": "Geçersiz resim formatı."})
 
         schema     = await get_schema(question_count)
+        candidate_names = _parse_candidate_names(candidate_names_json)
         maxW, maxH = 1000, 1400
 
         # ── A. Ön işleme & Anchor tespiti ─────────────────────────────────────
@@ -590,9 +1108,25 @@ async def process_form(
         student_info = {}
         ocr_debug = {
             "easyocr_result": "",
+            "easyocr_rgb_result": "",
+            "easyocr_gray_result": "",
+            "easyocr_selected_variant": "",
             "tesseract_result": "",
+            "tesseract_available": TESSERACT_AVAILABLE,
             "selected": "",
+            "pre_match_final": "",
+            "post_lexicon_final": "",
             "final": "",
+            "roi_image_base64": "",
+            "roi_gray_image_base64": "",
+            "debug_roi_path": "",
+            "candidate_names_count": 0,
+            "candidate_match_applied": False,
+            "candidate_match_name": "",
+            "candidate_match_score": 0.0,
+            "candidate_match_top3": [],
+            "lexicon_correction_applied": False,
+            "lexicon_correction_changes": [],
         }
         for field in schema["fields"]:
             fx = int(field["x"] * maxW);  fy = int(field["y"] * maxH)
@@ -603,29 +1137,49 @@ async def process_form(
             field_crop_bgr  = warped[fy + inset:fy + fh - inset,
                                      fx + inset:fx + fw - inset]
 
-            text = _ocr_field(field_crop_gray, ocr_lang)
             if field["name"] == "student_name":
                 debug_path = ""
                 try:
-                    debug_path = f"/tmp/name_roi_debug_{int(time.time() * 1000)}.png"
-                    cv2.imwrite(debug_path, field_crop_bgr)
-                    print(f"[DEBUG] Name ROI saved: {debug_path}")
+                    debug_dir = tempfile.gettempdir()
+                    debug_path = f"{debug_dir}/name_roi_debug_{int(time.time() * 1000)}.png"
+                    if cv2.imwrite(debug_path, field_crop_bgr):
+                        print(f"[DEBUG] Name ROI saved: {debug_path}")
+                    else:
+                        debug_path = ""
+                        print("[DEBUG] Name ROI save failed: cv2.imwrite returned False")
                 except Exception as debug_err:
                     print(f"[DEBUG] Name ROI save failed: {debug_err}")
 
-                hybrid_text, hybrid_debug = _ocr_name_hybrid(field_crop_bgr, ocr_lang)
+                hybrid_text, hybrid_debug = _ocr_name_hybrid(field_crop_bgr, ocr_lang, candidate_names)
                 if hybrid_text and len(hybrid_text) >= 2:
                     text = hybrid_text
-                elif not text or text == "Okunamadı":
+                else:
                     text = "Okunamadı"
 
                 ocr_debug = {
                     "easyocr_result": hybrid_debug.get("easyocr_result", ""),
-                    "tesseract_result": hybrid_debug.get("tesseract_result", text),
+                    "easyocr_rgb_result": hybrid_debug.get("easyocr_rgb_result", ""),
+                    "easyocr_gray_result": hybrid_debug.get("easyocr_gray_result", ""),
+                    "easyocr_selected_variant": hybrid_debug.get("easyocr_selected_variant", "none"),
+                    "tesseract_result": hybrid_debug.get("tesseract_result", ""),
+                    "tesseract_available": hybrid_debug.get("tesseract_available", TESSERACT_AVAILABLE),
                     "selected": hybrid_debug.get("selected", "tesseract"),
+                    "pre_match_final": hybrid_debug.get("pre_match_final", ""),
+                    "post_lexicon_final": hybrid_debug.get("post_lexicon_final", ""),
                     "final": text,
+                    "roi_image_base64": hybrid_debug.get("roi_image_base64", ""),
+                    "roi_gray_image_base64": hybrid_debug.get("roi_gray_image_base64", ""),
                     "debug_roi_path": debug_path,
+                    "candidate_names_count": hybrid_debug.get("candidate_names_count", 0),
+                    "candidate_match_applied": hybrid_debug.get("candidate_match_applied", False),
+                    "candidate_match_name": hybrid_debug.get("candidate_match_name", ""),
+                    "candidate_match_score": hybrid_debug.get("candidate_match_score", 0.0),
+                    "candidate_match_top3": hybrid_debug.get("candidate_match_top3", []),
+                    "lexicon_correction_applied": hybrid_debug.get("lexicon_correction_applied", False),
+                    "lexicon_correction_changes": hybrid_debug.get("lexicon_correction_changes", []),
                 }
+            else:
+                text = _ocr_field(field_crop_gray, ocr_lang)
 
             student_info[field["name"]] = text
             cv2.rectangle(debug_img, (fx, fy), (fx + fw, fy + fh), (255, 0, 0), 2)
