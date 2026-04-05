@@ -13,7 +13,7 @@ import { palette } from '../theme/palette';
 
 export type RootStackParamList = {
   Groups: undefined;
-  GroupDetail: { groupId: string; groupName: string; capturedImageUri?: string };
+  GroupDetail: { groupId: string; groupName?: string; capturedImageUri?: string };
   ExamConfig: { exam: Exam };
   Camera: { groupId: string; groupName: string; questionCount: number };
   ScanResult: { exam: Exam; imageUri: string; examId?: string; questionCount?: number };
@@ -52,12 +52,12 @@ export const AppNavigator = () => {
         <Stack.Screen
           name="Groups"
           component={GroupsScreen}
-          options={{ title: 'Gruplarım' }}
+          options={{ title: 'Sınıflarım' }}
         />
         <Stack.Screen
           name="GroupDetail"
           component={GroupDetailScreen}
-          options={({ route }) => ({ title: route.params.groupName })}
+          options={({ route }) => ({ title: route.params.groupName || 'Sınıf Detayı' })}
         />
         <Stack.Screen
           name="ExamConfig"
@@ -77,7 +77,7 @@ export const AppNavigator = () => {
         <Stack.Screen
           name="ResultDetail"
           component={ResultDetailScreen}
-          options={{ title: 'Sonuç Detayı' }}
+          options={{ title: 'Öğrenci Sonucu' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Image, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Image, ScrollView, TouchableOpacity, Modal, Alert } from 'react-native';
 import {
   AlertCircle, ArrowLeft, User, CheckCircle2, XCircle, MinusCircle,
-  Info, Save, Camera,
+  Info, Save, Camera, ArrowRightLeft,
 } from 'lucide-react-native';
 const CameraPlus = Camera;
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -18,11 +18,14 @@ const CHOICE_LABELS = ['A', 'B', 'C', 'D', 'E'];
 
 export const ScanResultScreen = ({ route, navigation }: Props) => {
   const { exam, imageUri } = route.params;
-  const { addStudentResult } = useStore();
+  const { groups, addStudentResult, transferStudentResult } = useStore();
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [errorMSG, setErrorMSG] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [savedResultId, setSavedResultId] = useState('');
+  const [transferModalVisible, setTransferModalVisible] = useState(false);
+  const [targetGroupId, setTargetGroupId] = useState('');
   const isMounted = useRef(true);
 
   useEffect(() => {
@@ -50,9 +53,12 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
   };
 
   const saveResult = (res: ScanResult) => {
+    if (savedResultId) return savedResultId;
+
+    const resultId = Math.random().toString(36).substr(2, 9);
     const { correct, wrong, blank, score } = gradeResult(res);
     addStudentResult(exam.id, {
-      id: Math.random().toString(36).substr(2, 9),
+      id: resultId,
       name: (res.student_info as any)?.student_name || res.student_info?.name || 'Bilinmeyen',
       studentNumber: res.student_info?.student_number || 'Bilinmiyor',
       correct, wrong, blank, score,
@@ -60,13 +66,72 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
       scannedAt: Date.now(),
     });
     setSaved(true);
+    setSavedResultId(resultId);
+    return resultId;
+  };
+
+  const otherGroups = groups.filter(g => g.id !== exam.id);
+
+  const openTransferModal = () => {
+    if (!result) return;
+    if (otherGroups.length === 0) {
+      Alert.alert('Uyarı', 'Aktarım için en az bir farklı sınıf oluşturulmalı.');
+      return;
+    }
+
+    const ensuredResultId = saved ? savedResultId : saveResult(result);
+    if (!ensuredResultId) return;
+
+    const studentNo = String(result.student_info?.student_number || '').replace(/\s+/g, '').trim();
+    const suggested = otherGroups.find(group => {
+      if (!studentNo) return false;
+      const rosterMatch = (group.roster || []).some((student: any) =>
+        String(student.student_number || '').replace(/\s+/g, '').trim() === studentNo
+      );
+      const resultMatch = (group.results || []).some((item: any) =>
+        String(item.studentNumber || '').replace(/\s+/g, '').trim() === studentNo
+      );
+      return rosterMatch || resultMatch;
+    });
+
+    setTargetGroupId(suggested?.id || otherGroups[0]?.id || '');
+    setTransferModalVisible(true);
+  };
+
+  const executeTransfer = (mode: 'skip' | 'replace') => {
+    if (!targetGroupId || !savedResultId) return;
+    const summary = transferStudentResult(exam.id, targetGroupId, savedResultId, mode);
+
+    if (summary.ok) {
+      setTransferModalVisible(false);
+      const target = groups.find(g => g.id === targetGroupId);
+      navigation.navigate('GroupDetail', {
+        groupId: targetGroupId,
+        groupName: target?.course_name || target?.name || 'Sınıf',
+      });
+      return;
+    }
+
+    if (summary.reason === 'duplicate-skipped' && mode === 'skip') {
+      Alert.alert(
+        'Aynı Numara Bulundu',
+        'Hedef sınıfta aynı öğrenci numarasına sahip kayıt var. Üzerine yazılsın mı?',
+        [
+          { text: 'Vazgeç', style: 'cancel' },
+          { text: 'Üzerine Yaz', onPress: () => executeTransfer('replace') },
+        ]
+      );
+      return;
+    }
+
+    Alert.alert('Hata', 'Aktarım sırasında bir sorun oluştu.');
   };
 
   const uploadAndProcess = async () => {
     try {
       setLoading(true);
       setErrorMSG(null);
-      const res = await processForm(imageUri, exam.questionCount);
+      const res = await processForm(imageUri, exam.question_count || exam.questionCount || 20);
       if (!isMounted.current) {
         if (!(res.error || res.status === 'error')) saveResult(res);
         return;
@@ -276,7 +341,7 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
           activeOpacity={0.85}
           onPress={() => {
             if (!saved) saveResult(result);
-            navigation.navigate('GroupDetail', { groupId: exam.id } as any);
+            navigation.navigate('GroupDetail', { groupId: exam.id });
           }}
         >
           <Save size={16} color={palette.white} />
@@ -294,7 +359,62 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
           <CameraPlus size={16} color={palette.white} />
           <Text style={styles.moreBtnText}>Başka Tara</Text>
         </TouchableOpacity>
+
+        {otherGroups.length > 0 ? (
+          <TouchableOpacity
+            style={styles.transferBtn}
+            activeOpacity={0.85}
+            onPress={openTransferModal}
+          >
+            <ArrowRightLeft size={16} color={palette.white} />
+            <Text style={styles.transferBtnText}>Sınıfa Aktar</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
+
+      <Modal visible={transferModalVisible} transparent animationType="fade" onRequestClose={() => setTransferModalVisible(false)}>
+        <View style={styles.overlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Sınıfa Aktar</Text>
+            <Text style={styles.modalDescription}>Öğrenci sonucu için hedef sınıf seçin.</Text>
+
+            <ScrollView style={styles.transferList}>
+              {otherGroups.map(group => {
+                const selected = targetGroupId === group.id;
+                return (
+                  <TouchableOpacity
+                    key={group.id}
+                    style={[styles.transferItem, selected && styles.transferItemSelected]}
+                    onPress={() => setTargetGroupId(group.id)}
+                  >
+                    <Text style={[styles.transferItemTitle, selected && styles.transferItemTitleSelected]}>
+                      {group.course_name || group.name}
+                    </Text>
+                    <Text style={styles.transferItemMeta}>
+                      {(group.grade_level ? `${group.grade_level}. Sınıf · ` : '')}
+                      {(group.section ? `${group.section} Şube · ` : '')}
+                      {(group.question_count || group.questionCount || 20)} Soru
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setTransferModalVisible(false)}>
+                <Text style={styles.modalCancelBtnText}>Vazgeç</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalConfirmBtn, !targetGroupId && { opacity: 0.4 }]}
+                onPress={() => executeTransfer('skip')}
+                disabled={!targetGroupId}
+              >
+                <Text style={styles.modalConfirmBtnText}>Aktar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 };
@@ -493,4 +613,76 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   moreBtnText: { color: palette.white, fontWeight: '800', fontSize: 14 },
+  transferBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: palette.accent,
+    paddingVertical: 14,
+    borderRadius: radii.md,
+    shadowColor: palette.accent,
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  transferBtnText: { color: palette.white, fontWeight: '800', fontSize: 14 },
+
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(11, 36, 23, 0.55)',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  modalCard: {
+    backgroundColor: palette.card,
+    borderRadius: radii.lg,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    maxHeight: '85%',
+  },
+  modalTitle: { fontSize: 19, fontWeight: '800', color: palette.ink, marginBottom: 6 },
+  modalDescription: { fontSize: 12, color: palette.muted, marginBottom: 10 },
+  transferList: {
+    maxHeight: 240,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: radii.sm,
+    backgroundColor: palette.white,
+  },
+  transferItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E7F0E9',
+  },
+  transferItemSelected: {
+    backgroundColor: '#E5F6E9',
+  },
+  transferItemTitle: { color: palette.ink, fontWeight: '800', fontSize: 13 },
+  transferItemTitleSelected: { color: palette.primary },
+  transferItemMeta: { color: palette.muted, fontSize: 11, marginTop: 2 },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    backgroundColor: palette.mist,
+    borderRadius: radii.sm,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  modalCancelBtnText: { color: palette.muted, fontWeight: '800', fontSize: 13 },
+  modalConfirmBtn: {
+    flex: 1,
+    backgroundColor: palette.primary,
+    borderRadius: radii.sm,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  modalConfirmBtnText: { color: palette.white, fontWeight: '800', fontSize: 13 },
 });

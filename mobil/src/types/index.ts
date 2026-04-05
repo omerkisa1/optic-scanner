@@ -8,16 +8,32 @@ export interface StudentResult {
   score: number;
   answers: Record<string, string>;
   scannedAt: number;
-  pending?: boolean; // taranıyor durumu
+  pending?: boolean;
+}
+
+export interface ClassRosterStudent {
+  id: string;
+  full_name: string;
+  student_number: string;
+  grade_level?: string;
+  section?: string;
+  created_at: number;
 }
 
 export interface Group {
   id: string;
-  name: string;
-  questionCount: number;
-  answerKey: Record<string, string>;
+  course_name: string;
+  question_count: number;
+  grade_level?: string;
+  section?: string;
+  answer_key: Record<string, string>;
+  roster: ClassRosterStudent[];
   results?: StudentResult[];
-  createdAt: number;
+  created_at: number;
+  name?: string;
+  questionCount?: number;
+  answerKey?: Record<string, string>;
+  createdAt?: number;
 }
 
 export interface OptionSchema {
@@ -52,3 +68,10 @@ export interface ScanResult {
 }
 
 export type Exam = Group;
+
+export interface CreateClassInput {
+  course_name: string;
+  question_count: number;
+  grade_level?: string;
+  section?: string;
+}

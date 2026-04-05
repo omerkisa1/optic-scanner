@@ -14,70 +14,129 @@ import { palette, radii } from '../theme/palette';
 type Props = NativeStackScreenProps<RootStackParamList, 'Groups'>;
 
 const AVATAR_COLORS = [
-  '#C66A44', '#0F766E', '#6B5CA5', '#2E8A68',
-  '#A96A2A', '#1E6085', '#8A4A57', '#3D6E8A',
+  '#2F9E44', '#1E7F3B', '#0F6A36', '#3FAE55',
+  '#2B8B4B', '#217140', '#46B362', '#2F7552',
 ];
+const GRADE_OPTIONS = ['5', '6', '7', '8', '9', '10', '11', '12'];
+const SECTION_OPTIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+
 const getAvatarColor = (name: string) => {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 };
 
+const getClassName = (item: any) => item.course_name || item.name || 'İsimsiz Sınıf';
+const getQuestionCount = (item: any) => item.question_count || item.questionCount || 20;
+const getCreatedAt = (item: any) => item.created_at || item.createdAt || Date.now();
+const getAnswerKey = (item: any) => item.answer_key || item.answerKey || {};
+
+const buildClassMeta = (item: any) => {
+  const parts: string[] = [];
+  if (item.grade_level) parts.push(`${item.grade_level}. Sınıf`);
+  if (item.section) parts.push(`${item.section} Şubesi`);
+  parts.push(`${getQuestionCount(item)} Soru`);
+  return parts.join('  ·  ');
+};
+
 export const GroupsScreen = ({ navigation }: Props) => {
-  const { groups, addGroup, removeGroup, updateGroupName } = useStore();
+  const { groups, addGroup, addClass, removeGroup, updateGroupName } = useStore();
   const [showModal, setShowModal] = useState(false);
-  const [newGroupName, setNewGroupName] = useState('');
+  const [courseName, setCourseName] = useState('');
   const [questionCount, setQuestionCount] = useState('20');
+  const [gradeLevel, setGradeLevel] = useState('');
+  const [section, setSection] = useState('');
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editGroupId, setEditGroupId] = useState('');
   const [editName, setEditName] = useState('');
 
   const dashboard = useMemo(() => {
-    const scannedCount = groups.reduce((acc, group) => acc + (group.results?.length || 0), 0);
-    const configuredCount = groups.filter(group => Object.keys(group.answerKey || {}).length > 0).length;
+    const scannedCount = groups.reduce((acc, group) => {
+      const completed = (group.results || []).filter((result: any) => !result.pending).length;
+      return acc + completed;
+    }, 0);
+    const configuredCount = groups.filter(group => Object.keys(getAnswerKey(group)).length > 0).length;
+    const rosterCount = groups.reduce((acc, group) => acc + (group.roster?.length || 0), 0);
     return {
       scannedCount,
       configuredCount,
-      groupCount: groups.length,
+      rosterCount,
+      classCount: groups.length,
     };
   }, [groups]);
 
+  const resetCreateForm = () => {
+    setCourseName('');
+    setQuestionCount('20');
+    setGradeLevel('');
+    setSection('');
+  };
+
   const handleAddGroup = () => {
-    if (!newGroupName.trim()) { Alert.alert('Uyarı', 'Grup adı boş olamaz.'); return; }
-    const count = parseInt(questionCount, 10);
-    if (isNaN(count) || count < 1 || count > 30) {
-      Alert.alert('Hata', 'Soru sayısı 1 ile 30 arasında olmalıdır.'); return;
+    if (!courseName.trim()) {
+      Alert.alert('Uyarı', 'Sınıf adı boş olamaz.');
+      return;
     }
-    addGroup(newGroupName.trim(), count);
-    setNewGroupName(''); setQuestionCount('20'); setShowModal(false);
+    const count = parseInt(questionCount, 10);
+    if (isNaN(count) || count < 1 || count > 200) {
+      Alert.alert('Hata', 'Soru sayısı 1 ile 200 arasında olmalıdır.');
+      return;
+    }
+
+    if (addClass) {
+      addClass({
+        course_name: courseName.trim(),
+        question_count: count,
+        grade_level: gradeLevel || undefined,
+        section: section || undefined,
+      });
+    } else {
+      addGroup(courseName.trim(), count);
+    }
+
+    resetCreateForm();
+    setShowModal(false);
   };
 
   const handleDelete = (item: any) => {
-    Alert.alert('Grubu Sil', `"${item.name}" grubunu silmek istediğinize emin misiniz?`, [
+    Alert.alert('Sınıfı Sil', `"${getClassName(item)}" sınıfını silmek istediğinize emin misiniz?`, [
       { text: 'İptal', style: 'cancel' },
       { text: 'Sil', style: 'destructive', onPress: () => removeGroup(item.id) },
     ]);
   };
 
   const handleEditName = (item: any) => {
-    setEditGroupId(item.id); setEditName(item.name); setEditModalVisible(true);
+    setEditGroupId(item.id);
+    setEditName(getClassName(item));
+    setEditModalVisible(true);
   };
 
   const handleSaveEditName = () => {
-    if (!editName.trim()) { Alert.alert('Uyarı', 'Grup adı boş olamaz.'); return; }
-    updateGroupName(editGroupId, editName.trim()); setEditModalVisible(false);
+    if (!editName.trim()) {
+      Alert.alert('Uyarı', 'Sınıf adı boş olamaz.');
+      return;
+    }
+    updateGroupName(editGroupId, editName.trim());
+    setEditModalVisible(false);
   };
 
   const renderGroupItem = ({ item }: { item: any }) => {
-    const resultCount = item.results?.length || 0;
-    const hasAnswerKey = Object.keys(item.answerKey || {}).length > 0;
-    const avatarColor = getAvatarColor(item.name);
-    const initials = item.name.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
+    const className = getClassName(item);
+    const resultCount = (item.results || []).filter((r: any) => !r.pending).length;
+    const hasAnswerKey = Object.keys(getAnswerKey(item)).length > 0;
+    const avatarColor = getAvatarColor(className);
+    const initials = className
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w: string) => w[0])
+      .join('')
+      .toUpperCase();
 
     return (
       <TouchableOpacity
         style={styles.groupCard}
-        onPress={() => navigation.navigate('GroupDetail', { groupId: item.id, groupName: item.name })}
+        onPress={() => navigation.navigate('GroupDetail', { groupId: item.id, groupName: className })}
         activeOpacity={0.7}
       >
         <View style={styles.cardTop}>
@@ -85,9 +144,12 @@ export const GroupsScreen = ({ navigation }: Props) => {
             <Text style={styles.avatarText}>{initials}</Text>
           </View>
           <View style={styles.cardInfo}>
-            <Text style={styles.groupTitle} numberOfLines={1}>{item.name}</Text>
+            <Text style={styles.groupTitle} numberOfLines={1}>{className}</Text>
             <Text style={styles.groupMeta}>
-              {item.questionCount} Soru  ·  {new Date(item.createdAt).toLocaleDateString('tr-TR')}
+              {buildClassMeta(item)}
+            </Text>
+            <Text style={styles.groupDate}>
+              Oluşturulma: {new Date(getCreatedAt(item)).toLocaleDateString('tr-TR')}
             </Text>
           </View>
           <View style={styles.cardActions}>
@@ -113,6 +175,9 @@ export const GroupsScreen = ({ navigation }: Props) => {
             <FileText size={11} color={palette.muted} style={{ marginRight: 4 }} />
             <Text style={styles.badgeText}>{resultCount} Tarama</Text>
           </View>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{item.roster?.length || 0} Öğrenci</Text>
+          </View>
           {hasAnswerKey ? (
             <View style={[styles.badge, styles.badgeGreen]}>
               <CheckCircle size={11} color={palette.positive} style={{ marginRight: 4 }} />
@@ -132,15 +197,19 @@ export const GroupsScreen = ({ navigation }: Props) => {
   const renderDashboard = () => (
     <View style={styles.dashboardCard}>
       <Text style={styles.dashboardTitle}>Sınıf Panosu</Text>
-      <Text style={styles.dashboardSubtitle}>Tarama gruplarını yönetin ve her sınıfın ilerlemesini tek bakışta görün.</Text>
+      <Text style={styles.dashboardSubtitle}>Sınıfları, öğrenci listelerini ve tarama ilerlemesini tek ekrandan yönetin.</Text>
       <View style={styles.metricRow}>
         <View style={styles.metricCard}>
-          <Text style={styles.metricValue}>{dashboard.groupCount}</Text>
-          <Text style={styles.metricLabel}>Grup</Text>
+          <Text style={styles.metricValue}>{dashboard.classCount}</Text>
+          <Text style={styles.metricLabel}>Sınıf</Text>
         </View>
         <View style={styles.metricCard}>
           <Text style={styles.metricValue}>{dashboard.scannedCount}</Text>
           <Text style={styles.metricLabel}>Tarama</Text>
+        </View>
+        <View style={styles.metricCard}>
+          <Text style={styles.metricValue}>{dashboard.rosterCount}</Text>
+          <Text style={styles.metricLabel}>Öğrenci</Text>
         </View>
         <View style={styles.metricCard}>
           <Text style={styles.metricValue}>{dashboard.configuredCount}</Text>
@@ -163,8 +232,8 @@ export const GroupsScreen = ({ navigation }: Props) => {
             <View style={styles.emptyIconWrap}>
               <FolderOpen size={44} color={palette.border} />
             </View>
-            <Text style={styles.emptyTitle}>Henüz grubunuz yok</Text>
-            <Text style={styles.emptySubtext}>Aşağıdaki butona basarak ilk grubunuzu oluşturun.</Text>
+            <Text style={styles.emptyTitle}>Henüz sınıfınız yok</Text>
+            <Text style={styles.emptySubtext}>Aşağıdaki butona basarak ilk sınıfınızı oluşturun.</Text>
           </View>
         }
         contentContainerStyle={styles.listContainer}
@@ -172,27 +241,62 @@ export const GroupsScreen = ({ navigation }: Props) => {
 
       <TouchableOpacity style={styles.fab} onPress={() => setShowModal(true)} activeOpacity={0.88}>
         <Plus size={20} color={palette.white} strokeWidth={2.6} />
-        <Text style={styles.fabText}>Grup Oluştur</Text>
+          <Text style={styles.fabText}>Sınıf Oluştur</Text>
       </TouchableOpacity>
 
       <Modal visible={showModal} transparent animationType="fade" onRequestClose={() => setShowModal(false)}>
         <View style={styles.overlay}>
           <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Yeni Grup Oluştur</Text>
-            <Text style={styles.inputLabel}>Grup / Sınıf Adı</Text>
+              <Text style={styles.modalTitle}>Yeni Sınıf Oluştur</Text>
+              <Text style={styles.inputLabel}>Ders / Sınıf Adı</Text>
             <TextInput
-              style={styles.input} placeholder="Örn: 10-A Matematik"
-              placeholderTextColor={palette.muted} value={newGroupName}
-              onChangeText={setNewGroupName} autoFocus
+                style={styles.input} placeholder="Örn: Matematik"
+                placeholderTextColor={palette.muted} value={courseName}
+                onChangeText={setCourseName} autoFocus
             />
             <Text style={styles.inputLabel}>Soru Sayısı</Text>
             <TextInput
-              style={styles.input} placeholder="1 – 30" placeholderTextColor={palette.muted}
+                style={styles.input} placeholder="1 – 200" placeholderTextColor={palette.muted}
               value={questionCount} onChangeText={setQuestionCount}
-              keyboardType="numeric" maxLength={2}
+                keyboardType="numeric" maxLength={3}
             />
+
+              <Text style={styles.inputLabel}>Sınıf Düzeyi (Opsiyonel)</Text>
+              <View style={styles.optionRow}>
+                {GRADE_OPTIONS.map(opt => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[styles.optionChip, gradeLevel === opt && styles.optionChipActive]}
+                    onPress={() => setGradeLevel(prev => prev === opt ? '' : opt)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.optionChipText, gradeLevel === opt && styles.optionChipTextActive]}>{opt}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.inputLabel}>Şube (Opsiyonel)</Text>
+              <View style={styles.optionRow}>
+                {SECTION_OPTIONS.map(opt => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[styles.optionChip, section === opt && styles.optionChipActive]}
+                    onPress={() => setSection(prev => prev === opt ? '' : opt)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.optionChipText, section === opt && styles.optionChipTextActive]}>{opt}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
             <View style={styles.modalBtns}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => { setShowModal(false); setNewGroupName(''); setQuestionCount('20'); }}>
+                <TouchableOpacity
+                  style={styles.cancelBtn}
+                  onPress={() => {
+                    setShowModal(false);
+                    resetCreateForm();
+                  }}
+                >
                 <Text style={styles.cancelBtnText}>İptal</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.confirmBtn} onPress={handleAddGroup}>
@@ -206,10 +310,10 @@ export const GroupsScreen = ({ navigation }: Props) => {
       <Modal visible={editModalVisible} transparent animationType="fade" onRequestClose={() => setEditModalVisible(false)}>
         <View style={styles.overlay}>
           <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Grup Adını Düzenle</Text>
-            <Text style={styles.inputLabel}>Yeni Grup Adı</Text>
+            <Text style={styles.modalTitle}>Sınıf Adını Düzenle</Text>
+            <Text style={styles.inputLabel}>Yeni Sınıf Adı</Text>
             <TextInput
-              style={styles.input} placeholder="Grup adı..."
+              style={styles.input} placeholder="Sınıf adı..."
               placeholderTextColor={palette.muted} value={editName}
               onChangeText={setEditName} autoFocus
             />
@@ -259,16 +363,18 @@ const styles = StyleSheet.create({
   metricRow: {
     marginTop: 16,
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
+    flexWrap: 'wrap',
   },
   metricCard: {
-    flex: 1,
-    backgroundColor: '#1A3138',
+    width: '23%',
+    minWidth: 74,
+    backgroundColor: '#1A4B2E',
     borderRadius: radii.md,
     paddingVertical: 12,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2A4952',
+    borderColor: '#2A6A42',
   },
   metricValue: {
     color: palette.white,
@@ -276,7 +382,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   metricLabel: {
-    color: '#A7B9BE',
+    color: '#B9DDC8',
     fontSize: 12,
     marginTop: 2,
   },
@@ -307,12 +413,13 @@ const styles = StyleSheet.create({
   cardInfo: { flex: 1 },
   groupTitle: { fontSize: 17, fontWeight: '800', color: palette.ink },
   groupMeta: { fontSize: 13, color: palette.muted, marginTop: 3 },
+  groupDate: { fontSize: 11, color: palette.muted, marginTop: 3 },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   iconBtn: { padding: 6 },
 
   cardBottom: {
     flexDirection: 'row', gap: 8, marginTop: 12,
-    paddingTop: 12, borderTopWidth: 1, borderTopColor: '#ECE4D6', flexWrap: 'wrap',
+    paddingTop: 12, borderTopWidth: 1, borderTopColor: '#DAEAD8', flexWrap: 'wrap',
   },
   badge: {
     flexDirection: 'row',
@@ -323,9 +430,9 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
   },
   badgeText: { fontSize: 12, color: palette.muted, fontWeight: '700' },
-  badgeGreen: { backgroundColor: '#E4F6EE' },
+  badgeGreen: { backgroundColor: '#DFF4E5' },
   badgeGreenText: { color: palette.positive },
-  badgeOrange: { backgroundColor: '#FFF0DF' },
+  badgeOrange: { backgroundColor: '#FFF4E3' },
   badgeOrangeText: { color: palette.warning },
 
   emptyContainer: { alignItems: 'center', paddingTop: 80, paddingHorizontal: 32 },
@@ -364,6 +471,35 @@ const styles = StyleSheet.create({
     backgroundColor: palette.white, borderWidth: 1.5, borderColor: palette.border,
     borderRadius: radii.sm, paddingHorizontal: 14, paddingVertical: 12,
     fontSize: 15, color: palette.ink, marginBottom: 14,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 14,
+  },
+  optionChip: {
+    minWidth: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.mist,
+  },
+  optionChipActive: {
+    backgroundColor: palette.primary,
+    borderColor: palette.primary,
+  },
+  optionChipText: {
+    color: palette.muted,
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  optionChipTextActive: {
+    color: palette.white,
   },
   modalBtns: { flexDirection: 'row', gap: 10, marginTop: 4 },
   cancelBtn: {
