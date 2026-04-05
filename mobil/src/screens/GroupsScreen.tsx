@@ -17,8 +17,8 @@ const AVATAR_COLORS = [
   '#2F9E44', '#1E7F3B', '#0F6A36', '#3FAE55',
   '#2B8B4B', '#217140', '#46B362', '#2F7552',
 ];
-const GRADE_OPTIONS = ['5', '6', '7', '8', '9', '10', '11', '12'];
-const SECTION_OPTIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+const GRADE_OPTIONS = ['1', '2', '3', '4'];
+const SECTION_OPTIONS = ['Gece A', 'Gece B', 'Gündüz A', 'Gündüz B'];
 
 const getAvatarColor = (name: string) => {
   let h = 0;
@@ -280,7 +280,7 @@ export const GroupsScreen = ({ navigation }: Props) => {
                 {SECTION_OPTIONS.map(opt => (
                   <TouchableOpacity
                     key={opt}
-                    style={[styles.optionChip, section === opt && styles.optionChipActive]}
+                    style={[styles.optionChip, styles.sectionChip, section === opt && styles.optionChipActive]}
                     onPress={() => setSection(prev => prev === opt ? '' : opt)}
                     activeOpacity={0.8}
                   >
@@ -488,6 +488,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
     backgroundColor: palette.mist,
+  },
+  sectionChip: {
+    minWidth: 92,
   },
   optionChipActive: {
     backgroundColor: palette.primary,
