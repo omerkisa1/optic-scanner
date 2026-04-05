@@ -1,5 +1,5 @@
 param(
-  [int]$MetroPort = 8081
+  [int[]]$Ports = @(8081, 8082, 9090)
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -34,10 +34,24 @@ function Get-ListeningPids {
   return $pids | Select-Object -Unique
 }
 
-$pids = Get-ListeningPids -Port $MetroPort
-foreach ($targetPid in $pids) {
-  Stop-Process -Id $targetPid -Force
+foreach ($port in $Ports) {
+  $pids = Get-ListeningPids -Port $port
+  foreach ($targetPid in $pids) {
+    Stop-Process -Id $targetPid -Force
+  }
 }
 
-adb reverse --remove "tcp:$MetroPort" | Out-Null
-Write-Host "Metro portu temizlendi: $MetroPort"
+foreach ($port in $Ports) {
+  adb reverse --remove "tcp:$port" | Out-Null
+}
+adb reverse --remove-all | Out-Null
+adb kill-server | Out-Null
+
+foreach ($port in $Ports) {
+  $stillListening = Get-ListeningPids -Port $port
+  if ($stillListening.Count -gt 0) {
+    Write-Host "Port temizlenemedi: $port (PID: $($stillListening -join ', '))"
+  } else {
+    Write-Host "Temiz: $port"
+  }
+}
