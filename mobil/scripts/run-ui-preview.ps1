@@ -40,9 +40,9 @@ function Stop-ProcessOnPort {
   param([int]$Port)
 
   $pids = Get-ListeningPids -Port $Port
-  foreach ($pid in $pids) {
+  foreach ($targetPid in $pids) {
     try {
-      Stop-Process -Id $pid -Force -ErrorAction Stop
+      Stop-Process -Id $targetPid -Force -ErrorAction Stop
     } catch {
     }
   }
@@ -51,7 +51,7 @@ function Stop-ProcessOnPort {
 function Wait-Metro {
   param(
     [int]$Port,
-    [int]$TimeoutSeconds = 45
+    [int]$TimeoutSeconds = 90
   )
 
   $start = Get-Date
@@ -77,13 +77,19 @@ if (-not $NoInstall -and -not (Test-Path (Join-Path $projectRoot.Path 'node_modu
 if (-not $UseExistingMetro) {
   Write-Host "Port $MetroPort temizleniyor..."
   Stop-ProcessOnPort -Port $MetroPort
+  Start-Sleep -Milliseconds 400
+  Stop-ProcessOnPort -Port $MetroPort
 
   Write-Host 'Metro yeni terminalde baslatiliyor...'
   $metroCmd = "Set-Location '$($projectRoot.Path)'; npx react-native start --reset-cache --port $MetroPort"
-  Start-Process -FilePath 'powershell' -ArgumentList @('-NoExit', '-ExecutionPolicy', 'Bypass', '-Command', $metroCmd) -WindowStyle Normal
+  Start-Process -FilePath 'powershell' -ArgumentList @('-NoExit', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $metroCmd) -WindowStyle Normal
 
-  if (-not (Wait-Metro -Port $MetroPort -TimeoutSeconds 60)) {
-    throw 'Metro zamaninda ayaga kalkmadi.'
+  if (-not (Wait-Metro -Port $MetroPort -TimeoutSeconds 120)) {
+    $pids = Get-ListeningPids -Port $MetroPort
+    if ($pids.Count -gt 0) {
+      Write-Host "Port $MetroPort su an su islemler tarafindan kullaniliyor: $($pids -join ', ')"
+    }
+    throw 'Metro zamaninda ayaga kalkmadi. Yukaridaki PID bilgisini kontrol et.'
   }
 } else {
   Write-Host 'Mevcut Metro bekleniyor...'

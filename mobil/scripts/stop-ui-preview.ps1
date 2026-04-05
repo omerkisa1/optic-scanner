@@ -35,8 +35,8 @@ function Get-ListeningPids {
 }
 
 $pids = Get-ListeningPids -Port $MetroPort
-foreach ($pid in $pids) {
-  Stop-Process -Id $pid -Force
+foreach ($targetPid in $pids) {
+  Stop-Process -Id $targetPid -Force
 }
 
 adb reverse --remove "tcp:$MetroPort" | Out-Null
