@@ -953,7 +953,7 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
       const fileName = `${safeName}_rapor.pdf`;
       const filePath = `${outputDir}/${fileName}`;
 
-      await ReactNativeBlobUtil.fs.writeFile(filePath, pdf, 'ascii');
+      await ReactNativeBlobUtil.fs.writeFile(filePath, pdf, 'utf8');
       if (Platform.OS === 'android') {
         ReactNativeBlobUtil.android.actionViewIntent(filePath, 'application/pdf');
       }
