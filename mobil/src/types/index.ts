@@ -60,11 +60,13 @@ export interface BackendSchema {
 export interface ScanResult {
   status: string;
   student_info: {
-    name: string;
+    name?: string;
+    student_name?: string;
     student_number: string;
   };
   answers: Record<string, string>;
   metadata: any;
+  form_image_base64?: string;
   formImagePath?: string;
   error?: string;
 }

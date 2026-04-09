@@ -3,6 +3,10 @@ import ImageResizer from 'react-native-image-resizer';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import { BackendSchema, ScanResult } from '../types';
 
+type RawScanResult = ScanResult & {
+  form_image_base64?: string;
+};
+
 // Android Emulator uses 10.0.2.2 for localhost, iOS uses 127.0.0.1
 export const API_BASE_URL = 'https://omr-scanner-jsc8.onrender.com';
 // export const API_BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://127.0.0.1:8000';
@@ -51,6 +55,19 @@ const parseResultHeader = (rawHeader: string): ScanResult => {
   }
 
   throw new Error('X-OMR-Result header parse edilemedi.');
+};
+
+const sanitizeBase64 = (value: string) => {
+  const normalized = value.includes(',') ? value.split(',').pop() || '' : value;
+  return normalized.replace(/\s+/g, '').trim();
+};
+
+const writeBase64TempImage = async (base64: string) => {
+  const dirs = ReactNativeBlobUtil.fs.dirs;
+  const tempDir = dirs.CacheDir || dirs.DocumentDir;
+  const filePath = `${tempDir}/omr_result_temp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
+  await ReactNativeBlobUtil.fs.writeFile(filePath, base64, 'base64');
+  return filePath;
 };
 
 const toSafeToken = (value: string | number) => {
@@ -119,6 +136,7 @@ export const processForm = async (
 ): Promise<ScanResult> => {
   let resizedPath = '';
   let tempResponsePath = '';
+  let tempBase64ImagePath = '';
   let abortHandler: (() => void) | undefined;
   let task: any;
 
@@ -174,17 +192,17 @@ export const processForm = async (
     const resultHeader = headers['x-omr-result'];
     tempResponsePath = normalizeLocalPath(response.path());
 
-    let parsedResult: ScanResult | null = null;
+    let parsedResult: RawScanResult | null = null;
 
     if (resultHeader) {
-      parsedResult = parseResultHeader(resultHeader);
+      parsedResult = parseResultHeader(resultHeader) as RawScanResult;
     } else if (contentType.includes('application/json') || contentType.includes('text/json')) {
       const jsonBody = await response.text();
-      parsedResult = JSON.parse(jsonBody) as ScanResult;
+      parsedResult = JSON.parse(jsonBody) as RawScanResult;
     } else if (tempResponsePath) {
       try {
         const rawBody = await ReactNativeBlobUtil.fs.readFile(tempResponsePath, 'utf8');
-        parsedResult = JSON.parse(rawBody) as ScanResult;
+        parsedResult = JSON.parse(rawBody) as RawScanResult;
       } catch {
         parsedResult = null;
       }
@@ -196,15 +214,25 @@ export const processForm = async (
 
     const isJpegResponse = contentType.includes('image/jpeg') || contentType.includes('image/jpg') || Boolean(resultHeader);
 
+    if (parsedResult.form_image_base64) {
+      const sanitized = sanitizeBase64(parsedResult.form_image_base64);
+      if (sanitized) {
+        tempBase64ImagePath = await writeBase64TempImage(sanitized);
+      }
+    }
+
     if (!isJpegResponse && tempResponsePath) {
       await ReactNativeBlobUtil.fs.unlink(tempResponsePath).catch(() => {
       });
       tempResponsePath = '';
     }
 
+    const { form_image_base64, ...resultWithoutBase64 } = parsedResult;
+    const formImagePath = isJpegResponse ? tempResponsePath : (tempBase64ImagePath || undefined);
+
     return {
-      ...parsedResult,
-      formImagePath: isJpegResponse ? tempResponsePath : undefined,
+      ...(resultWithoutBase64 as ScanResult),
+      formImagePath,
     };
   } catch (error: any) {
     const maybeMessage = String(error?.message || '').toLowerCase();
@@ -214,6 +242,11 @@ export const processForm = async (
 
     if (tempResponsePath) {
       await ReactNativeBlobUtil.fs.unlink(tempResponsePath).catch(() => {
+      });
+    }
+
+    if (tempBase64ImagePath) {
+      await ReactNativeBlobUtil.fs.unlink(tempBase64ImagePath).catch(() => {
       });
     }
 

@@ -1,17 +1,13 @@
 from fastapi import FastAPI, UploadFile, File, Form
-from fastapi.responses import JSONResponse, StreamingResponse, Response
+from fastapi.responses import JSONResponse, StreamingResponse
+import base64
 import io
-import json
 import re
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import pytesseract
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Yardımcı: Türkçe destekli TrueType font
-# ──────────────────────────────────────────────────────────────────────────────
 
 def _get_font(size: int):
     """Türkçe karakterleri (Ö Ğ Ş İ Ü Ç) destekleyen sistem fontu döndürür."""
@@ -340,210 +336,7 @@ async def generate_form(question_count: int = 20):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 3. Ortak OMR işleme çekirdeği
-# ──────────────────────────────────────────────────────────────────────────────
-
-async def _process_core(img: np.ndarray, question_count: int):
-    """
-    OMR formunu işler.
-    Dönüş: (debug_img, student_info, answers, metadata)
-    Hata durumunda ValueError fırlatır.
-    """
-    schema     = await get_schema(question_count)
-    maxW, maxH = 1000, 1400
-
-    # ── A. Ön işleme & Anchor tespiti ─────────────────────────────────────────
-    gray         = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    img_h, img_w = img.shape[:2]
-    img_area     = img_h * img_w
-
-    blurred      = cv2.GaussianBlur(gray, (5, 5), 0)
-    _, thresh_ot = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    kernel       = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    thresh       = cv2.morphologyEx(thresh_ot, cv2.MORPH_CLOSE, kernel, iterations=2)
-    contours, _  = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-
-    raw_cands = []
-    for c in contours:
-        area = cv2.contourArea(c)
-        if img_area * 0.00015 < area < img_area * 0.025:
-            bx, by, bw, bh = cv2.boundingRect(c)
-            aspect   = float(bw) / bh
-            solidity = area / float(bw * bh)
-            if 0.45 <= aspect <= 2.2 and solidity > 0.60:
-                raw_cands.append((c, area))
-
-    raw_cands.sort(key=lambda x: x[1], reverse=True)
-    raw_cands = raw_cands[:20]
-
-    if raw_cands:
-        areas    = [a for _, a in raw_cands]
-        median_a = float(np.median(areas[:min(8, len(areas))]))
-        raw_cands = [(c, a) for c, a in raw_cands
-                     if median_a * 0.15 < a < median_a * 6.0]
-
-    anchor_cands = [c for c, _ in raw_cands]
-
-    if len(anchor_cands) < 4:
-        raise ValueError(
-            f"Yeterli referans noktası ({len(anchor_cands)} adet) bulunamadı. "
-            "Formu iyi aydınlatılmış, düz bir zeminde çekin ve tüm köşe "
-            "karelerinin görünür olduğundan emin olun."
-        )
-
-    centers = []
-    for c in anchor_cands:
-        M = cv2.moments(c)
-        if M["m00"] != 0:
-            centers.append([int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])])
-        else:
-            bx, by, bw, bh = cv2.boundingRect(c)
-            centers.append([bx + bw // 2, by + bh // 2])
-
-    med_x     = float(np.median([p[0] for p in centers]))
-    left_pts  = sorted([p for p in centers if p[0] <  med_x], key=lambda p: p[1])
-    right_pts = sorted([p for p in centers if p[0] >= med_x], key=lambda p: p[1])
-
-    if len(left_pts) < 2 or len(right_pts) < 2:
-        raise ValueError("Formun sol veya sağ tarafında yeterli marker bulunamadı.")
-
-    def pick_col(pts, n=3):
-        if len(pts) <= n:
-            return pts[:n]
-        top, bottom = pts[0], pts[-1]
-        if n == 2:
-            return [top, bottom]
-        mid_y  = (top[1] + bottom[1]) / 2.0
-        middle = min(pts[1:-1], key=lambda p: abs(p[1] - mid_y))
-        return sorted([top, middle, bottom], key=lambda p: p[1])
-
-    am   = {a["id"]: a for a in schema["anchors"]}
-    use6 = len(left_pts) >= 3 and len(right_pts) >= 3
-
-    if use6:
-        tl, ml_p, bl = pick_col(left_pts,  3)
-        tr, mr_p, br = pick_col(right_pts, 3)
-        src = np.array([tl, tr, mr_p, br, bl, ml_p], dtype="float32")
-        dst = np.array([
-            [am["top_left"]["x"]     * maxW, am["top_left"]["y"]     * maxH],
-            [am["top_right"]["x"]    * maxW, am["top_right"]["y"]    * maxH],
-            [am["middle_right"]["x"] * maxW, am["middle_right"]["y"] * maxH],
-            [am["bottom_right"]["x"] * maxW, am["bottom_right"]["y"] * maxH],
-            [am["bottom_left"]["x"]  * maxW, am["bottom_left"]["y"]  * maxH],
-            [am["middle_left"]["x"]  * maxW, am["middle_left"]["y"]  * maxH],
-        ], dtype="float32")
-        H_mat, _ = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
-        if H_mat is None:
-            raise ValueError("Perspektif matrisi hesaplanamadı.")
-    else:
-        tl, bl = left_pts[0],  left_pts[-1]
-        tr, br = right_pts[0], right_pts[-1]
-        src = np.array([tl, tr, br, bl], dtype="float32")
-        dst = np.array([
-            [am["top_left"]["x"]     * maxW, am["top_left"]["y"]     * maxH],
-            [am["top_right"]["x"]    * maxW, am["top_right"]["y"]    * maxH],
-            [am["bottom_right"]["x"] * maxW, am["bottom_right"]["y"] * maxH],
-            [am["bottom_left"]["x"]  * maxW, am["bottom_left"]["y"]  * maxH],
-        ], dtype="float32")
-        H_mat = cv2.getPerspectiveTransform(src, dst)
-
-    # ── B. Warp ───────────────────────────────────────────────────────────────
-    warped      = cv2.warpPerspective(img, H_mat, (maxW, maxH),
-                                      borderValue=(255, 255, 255))
-    warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-    omr_thresh  = cv2.adaptiveThreshold(
-        warped_gray, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 15
-    )
-    debug_img = warped.copy()
-
-    for a in schema["anchors"]:
-        ax, ay = int(a["x"] * maxW), int(a["y"] * maxH)
-        cv2.circle(debug_img, (ax, ay), 18, (0, 200, 0), 3)
-
-    # ── C. OCR — sadece isim ──────────────────────────────────────────────────
-    ocr_lang     = _ocr_lang()
-    student_info = {}
-    for field in schema["fields"]:
-        fx = int(field["x"] * maxW);  fy = int(field["y"] * maxH)
-        fw = int(field["w"] * maxW);  fh = int(field["h"] * maxH)
-        inset      = 3
-        field_crop = warped_gray[fy + inset:fy + fh - inset,
-                                 fx + inset:fx + fw - inset]
-        text = _ocr_field(field_crop, ocr_lang)
-        student_info[field["name"]] = text
-        cv2.rectangle(debug_img, (fx, fy), (fx + fw, fy + fh), (255, 0, 0), 2)
-
-    # ── D. OMR — öğrenci numarası grid okuma ─────────────────────────────────
-    sn       = schema["student_number_grid"]
-    sn_xs    = sn["x_start"]
-    sn_xstp  = sn["x_step"]
-    sn_y_cs  = sn["y_circle_start"]
-    sn_y_cst = sn["y_circle_step"]
-    sn_dc    = sn["digit_count"]
-    sn_br    = int(maxW * sn["bubble_radius"])
-    sn_ir    = max(int(sn_br * 0.8), 1)
-
-    digits = []
-    for col in range(sn_dc):
-        bx         = int((sn_xs + col * sn_xstp) * maxW)
-        best_d     = None
-        best_ratio = 0.30
-
-        for row in range(10):
-            by     = int((sn_y_cs + row * sn_y_cst) * maxH)
-            mask   = np.zeros(omr_thresh.shape, dtype="uint8")
-            cv2.circle(mask, (bx, by), sn_ir, 255, -1)
-            total  = cv2.countNonZero(mask)
-            filled = cv2.countNonZero(cv2.bitwise_and(omr_thresh, omr_thresh, mask=mask))
-            if total > 0:
-                r = filled / total
-                if r > best_ratio:
-                    best_ratio, best_d = r, str(row)
-
-        digits.append(best_d if best_d is not None else "_")
-
-    student_info["student_number"] = "".join(digits)
-
-    for col in range(sn_dc):
-        bx = int((sn_xs + col * sn_xstp) * maxW)
-        for row in range(10):
-            by  = int((sn_y_cs + row * sn_y_cst) * maxH)
-            sel = (digits[col] == str(row))
-            cv2.circle(debug_img, (bx, by), sn_br,
-                       (0, 255, 0) if sel else (200, 200, 200),
-                       2 if sel else 1)
-
-    # ── E. OMR — soru balonları ───────────────────────────────────────────────
-    bub_r   = int(maxW * schema["metadata"]["bubble_radius"])
-    answers = {}
-
-    for q in schema["questions"]:
-        marked = []
-        for opt in q["options"]:
-            bx = int(opt["x"] * maxW);  by = int(opt["y"] * maxH)
-            ir = max(int(bub_r * 0.8), 1)
-            mask   = np.zeros(omr_thresh.shape, dtype="uint8")
-            cv2.circle(mask, (bx, by), ir, 255, -1)
-            total  = cv2.countNonZero(mask)
-            filled = cv2.countNonZero(cv2.bitwise_and(omr_thresh, omr_thresh, mask=mask))
-            if total > 0:
-                ratio = filled / total
-                if ratio >= 0.48:
-                    marked.append(opt["val"])
-                color = (0, 255, 0) if ratio >= 0.48 else (0, 0, 255)
-                cv2.circle(debug_img, (bx, by), bub_r, color, 2)
-                cv2.putText(debug_img, f"{ratio:.2f}",
-                            (bx - 15, by - bub_r - 5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
-        answers[str(q["q_no"])] = ",".join(marked)
-
-    metadata = {"processed_width": maxW, "processed_height": maxH}
-    return debug_img, student_info, answers, metadata
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# 4. İşleme Endpoint'i  — tek istek, JPEG gövde + JSON header
+# 3. İşleme Endpoint'i
 # ──────────────────────────────────────────────────────────────────────────────
 
 @app.post("/process")
@@ -551,37 +344,218 @@ async def process_form(
     file: UploadFile = File(...),
     question_count: int = Form(20),
 ):
-    """
-    Form görselini işler ve tek yanıtta hem sonucu hem görseli döndürür:
-      • Gövde      : perspektif düzeltilmiş, balonları renklendirilmiş JPEG
-      • X-OMR-Result header : tarama sonuçlarını içeren JSON string
-    Hata durumunda standart JSONResponse (4xx/5xx) döner.
-    """
     try:
         contents = await file.read()
         nparr    = np.frombuffer(contents, np.uint8)
         img      = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
         if img is None:
             return JSONResponse(status_code=400, content={"error": "Geçersiz resim formatı."})
 
-        debug_img, student_info, answers, metadata = await _process_core(img, question_count)
+        schema     = await get_schema(question_count)
+        maxW, maxH = 1000, 1400
 
-        result_data = {
-            "status":       "success",
+        # ── A. Ön işleme & Anchor tespiti ─────────────────────────────────────
+        gray     = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        img_h, img_w = img.shape[:2]
+        img_area = img_h * img_w
+
+        blurred      = cv2.GaussianBlur(gray, (5, 5), 0)
+        _, thresh_ot = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        kernel       = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        thresh       = cv2.morphologyEx(thresh_ot, cv2.MORPH_CLOSE, kernel, iterations=2)
+        contours, _  = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+
+        raw_cands = []
+        for c in contours:
+            area = cv2.contourArea(c)
+            if img_area * 0.00015 < area < img_area * 0.025:
+                bx, by, bw, bh = cv2.boundingRect(c)
+                aspect   = float(bw) / bh
+                solidity = area / float(bw * bh)
+                if 0.45 <= aspect <= 2.2 and solidity > 0.60:
+                    raw_cands.append((c, area))
+
+        raw_cands.sort(key=lambda x: x[1], reverse=True)
+        raw_cands = raw_cands[:20]
+
+        if raw_cands:
+            areas    = [a for _, a in raw_cands]
+            median_a = float(np.median(areas[:min(8, len(areas))]))
+            raw_cands = [(c, a) for c, a in raw_cands
+                         if median_a * 0.15 < a < median_a * 6.0]
+
+        anchor_cands = [c for c, _ in raw_cands]
+
+        if len(anchor_cands) < 4:
+            return JSONResponse(status_code=400, content={
+                "error": (f"Yeterli referans noktası ({len(anchor_cands)} adet) bulunamadı. "
+                          "Formu iyi aydınlatılmış, düz bir zeminde çekin ve tüm köşe "
+                          "karelerinin görünür olduğundan emin olun.")
+            })
+
+        centers = []
+        for c in anchor_cands:
+            M = cv2.moments(c)
+            if M["m00"] != 0:
+                centers.append([int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])])
+            else:
+                bx, by, bw, bh = cv2.boundingRect(c)
+                centers.append([bx + bw // 2, by + bh // 2])
+
+        med_x     = float(np.median([p[0] for p in centers]))
+        left_pts  = sorted([p for p in centers if p[0] <  med_x], key=lambda p: p[1])
+        right_pts = sorted([p for p in centers if p[0] >= med_x], key=lambda p: p[1])
+
+        if len(left_pts) < 2 or len(right_pts) < 2:
+            return JSONResponse(status_code=400, content={
+                "error": "Formun sol veya sağ tarafında yeterli marker bulunamadı."
+            })
+
+        def pick_col(pts, n=3):
+            if len(pts) <= n:
+                return pts[:n]
+            top, bottom = pts[0], pts[-1]
+            if n == 2:
+                return [top, bottom]
+            mid_y  = (top[1] + bottom[1]) / 2.0
+            middle = min(pts[1:-1], key=lambda p: abs(p[1] - mid_y))
+            return sorted([top, middle, bottom], key=lambda p: p[1])
+
+        am = {a["id"]: a for a in schema["anchors"]}
+        use6 = len(left_pts) >= 3 and len(right_pts) >= 3
+
+        if use6:
+            tl, ml_p, bl = pick_col(left_pts,  3)
+            tr, mr_p, br = pick_col(right_pts, 3)
+            src = np.array([tl, tr, mr_p, br, bl, ml_p], dtype="float32")
+            dst = np.array([
+                [am["top_left"]["x"]     * maxW, am["top_left"]["y"]     * maxH],
+                [am["top_right"]["x"]    * maxW, am["top_right"]["y"]    * maxH],
+                [am["middle_right"]["x"] * maxW, am["middle_right"]["y"] * maxH],
+                [am["bottom_right"]["x"] * maxW, am["bottom_right"]["y"] * maxH],
+                [am["bottom_left"]["x"]  * maxW, am["bottom_left"]["y"]  * maxH],
+                [am["middle_left"]["x"]  * maxW, am["middle_left"]["y"]  * maxH],
+            ], dtype="float32")
+            H_mat, _ = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
+            if H_mat is None:
+                return JSONResponse(status_code=400,
+                                    content={"error": "Perspektif matrisi hesaplanamadı."})
+        else:
+            tl, bl = left_pts[0],  left_pts[-1]
+            tr, br = right_pts[0], right_pts[-1]
+            src = np.array([tl, tr, br, bl], dtype="float32")
+            dst = np.array([
+                [am["top_left"]["x"]     * maxW, am["top_left"]["y"]     * maxH],
+                [am["top_right"]["x"]    * maxW, am["top_right"]["y"]    * maxH],
+                [am["bottom_right"]["x"] * maxW, am["bottom_right"]["y"] * maxH],
+                [am["bottom_left"]["x"]  * maxW, am["bottom_left"]["y"]  * maxH],
+            ], dtype="float32")
+            H_mat = cv2.getPerspectiveTransform(src, dst)
+
+        # ── B. Warp ───────────────────────────────────────────────────────────
+        warped      = cv2.warpPerspective(img, H_mat, (maxW, maxH),
+                                          borderValue=(255, 255, 255))
+        warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+        omr_thresh  = cv2.adaptiveThreshold(
+            warped_gray, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 15
+        )
+        debug_img = warped.copy()
+
+        for a in schema["anchors"]:
+            ax, ay = int(a["x"] * maxW), int(a["y"] * maxH)
+            cv2.circle(debug_img, (ax, ay), 18, (0, 200, 0), 3)
+
+        # ── C. OCR — sadece isim ──────────────────────────────────────────────
+        ocr_lang    = _ocr_lang()
+        student_info = {}
+        for field in schema["fields"]:
+            fx = int(field["x"] * maxW);  fy = int(field["y"] * maxH)
+            fw = int(field["w"] * maxW);  fh = int(field["h"] * maxH)
+            inset      = 3
+            field_crop = warped_gray[fy + inset:fy + fh - inset,
+                                     fx + inset:fx + fw - inset]
+            text = _ocr_field(field_crop, ocr_lang)
+            student_info[field["name"]] = text
+            cv2.rectangle(debug_img, (fx, fy), (fx + fw, fy + fh), (255, 0, 0), 2)
+
+        # ── D. OMR — öğrenci numarası grid okuma ─────────────────────────────
+        sn       = schema["student_number_grid"]
+        sn_xs    = sn["x_start"]
+        sn_xstp  = sn["x_step"]
+        sn_y_cs  = sn["y_circle_start"]
+        sn_y_cst = sn["y_circle_step"]
+        sn_dc    = sn["digit_count"]
+        sn_br    = int(maxW * sn["bubble_radius"])
+        sn_ir    = max(int(sn_br * 0.8), 1)
+
+        digits = []
+        for col in range(sn_dc):
+            bx          = int((sn_xs + col * sn_xstp) * maxW)
+            best_d      = None
+            best_ratio  = 0.30
+
+            for row in range(10):
+                by     = int((sn_y_cs + row * sn_y_cst) * maxH)
+                mask   = np.zeros(omr_thresh.shape, dtype="uint8")
+                cv2.circle(mask, (bx, by), sn_ir, 255, -1)
+                total  = cv2.countNonZero(mask)
+                filled = cv2.countNonZero(cv2.bitwise_and(omr_thresh, omr_thresh, mask=mask))
+                if total > 0:
+                    r = filled / total
+                    if r > best_ratio:
+                        best_ratio, best_d = r, str(row)
+
+            digits.append(best_d if best_d is not None else "_")
+
+        student_info["student_number"] = "".join(digits)
+
+        # Debug: öğrenci numarası grid görselleştirme
+        for col in range(sn_dc):
+            bx = int((sn_xs + col * sn_xstp) * maxW)
+            for row in range(10):
+                by  = int((sn_y_cs + row * sn_y_cst) * maxH)
+                sel = (digits[col] == str(row))
+                cv2.circle(debug_img, (bx, by), sn_br,
+                           (0, 255, 0) if sel else (200, 200, 200),
+                           2 if sel else 1)
+
+        # ── E. OMR — soru balonları ───────────────────────────────────────────
+        bub_r   = int(maxW * schema["metadata"]["bubble_radius"])
+        answers = {}
+
+        for q in schema["questions"]:
+            marked = []
+            for opt in q["options"]:
+                bx = int(opt["x"] * maxW);  by = int(opt["y"] * maxH)
+                ir = max(int(bub_r * 0.8), 1)
+                mask   = np.zeros(omr_thresh.shape, dtype="uint8")
+                cv2.circle(mask, (bx, by), ir, 255, -1)
+                total  = cv2.countNonZero(mask)
+                filled = cv2.countNonZero(cv2.bitwise_and(omr_thresh, omr_thresh, mask=mask))
+                if total > 0:
+                    ratio = filled / total
+                    if ratio >= 0.48:
+                        marked.append(opt["val"])
+                    color = (0, 255, 0) if ratio >= 0.48 else (0, 0, 255)
+                    cv2.circle(debug_img, (bx, by), bub_r, color, 2)
+                    cv2.putText(debug_img, f"{ratio:.2f}",
+                                (bx - 15, by - bub_r - 5),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+            answers[str(q["q_no"])] = ",".join(marked)
+
+        _, img_buf = cv2.imencode(".jpg", debug_img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        form_image_b64 = base64.b64encode(img_buf).decode("utf-8")
+
+        return {
+            "status": "success",
             "student_info": student_info,
-            "answers":      answers,
-            "metadata":     metadata,
+            "answers": answers,
+            "metadata": {"processed_width": maxW, "processed_height": maxH},
+            "form_image_base64": form_image_b64,
         }
 
-        _, buf = cv2.imencode(".jpg", debug_img, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        return Response(
-            content=bytes(buf),
-            media_type="image/jpeg",
-            headers={"X-OMR-Result": json.dumps(result_data, ensure_ascii=False)},
-        )
-
-    except ValueError as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
