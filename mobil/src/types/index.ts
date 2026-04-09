@@ -7,6 +7,7 @@ export interface StudentResult {
   blank: number;
   score: number;
   answers: Record<string, string>;
+  gradedImagePath?: string;
   scannedAt: number;
   pending?: boolean;
 }
@@ -64,6 +65,7 @@ export interface ScanResult {
   };
   answers: Record<string, string>;
   metadata: any;
+  formImagePath?: string;
   error?: string;
 }
 

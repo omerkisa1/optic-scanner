@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { deleteResultImage } from '../api/omrApi';
 import { Group, CreateClassInput, ClassRosterStudent, StudentResult } from '../types';
 
 type MergeMode = 'skip' | 'replace';
@@ -59,6 +60,7 @@ const normalizeAnswerKey = (answerKey: unknown): Record<string, string> => {
 
 const normalizeStudentResult = (input: Partial<StudentResult>): StudentResult => {
   const answers = input.answers && typeof input.answers === 'object' ? input.answers : {};
+  const gradedImagePath = normalizeTrim(input.gradedImagePath);
   return {
     id: normalizeTrim(input.id) || generateId(),
     name: normalizeTrim(input.name) || 'Bilinmeyen',
@@ -68,6 +70,7 @@ const normalizeStudentResult = (input: Partial<StudentResult>): StudentResult =>
     blank: Number(input.blank ?? 0) || 0,
     score: Number(input.score ?? 0) || 0,
     answers: answers as Record<string, string>,
+    gradedImagePath: gradedImagePath || undefined,
     scannedAt: Number(input.scannedAt ?? Date.now()) || Date.now(),
     pending: Boolean(input.pending),
   };
@@ -184,6 +187,14 @@ const mergeRoster = (
   return { roster, summary };
 };
 
+const cleanupImagePaths = (paths: Array<string | undefined>) => {
+  paths
+    .filter((path): path is string => Boolean(path && path.trim().length > 0))
+    .forEach((path) => {
+      void deleteResultImage(path);
+    });
+};
+
 export const useStore = create<StoreState>()(
   persist(
     (set) => ({
@@ -209,10 +220,21 @@ export const useStore = create<StoreState>()(
         return newGroup.id;
       },
 
-      removeGroup: (id) =>
+      removeGroup: (id) => {
+        const staleImagePaths: string[] = [];
+
         set((state) => ({
-          groups: state.groups.filter((g) => g.id !== id),
-        })),
+          groups: state.groups.filter((g) => {
+            if (g.id !== id) return true;
+            (g.results || []).forEach((result) => {
+              if (result.gradedImagePath) staleImagePaths.push(result.gradedImagePath);
+            });
+            return false;
+          }),
+        }));
+
+        cleanupImagePaths(staleImagePaths);
+      },
 
       updateGroupName: (groupId, name) =>
         set((state) => ({
@@ -253,43 +275,118 @@ export const useStore = create<StoreState>()(
           ),
         })),
 
-      addStudentResult: (groupId, result) =>
-        set((state) => ({
-          groups: state.groups.map((g) =>
-            g.id === groupId
-              ? withLegacyFields({
-                ...g,
-                results: [...(g.results || []), normalizeStudentResult(result)],
-              })
-              : g
-          ),
-        })),
+      addStudentResult: (groupId, result) => {
+        const staleImagePaths: string[] = [];
 
-      updateStudentResult: (groupId, resultId, updatedData) =>
         set((state) => ({
-          groups: state.groups.map((g) =>
-            g.id === groupId
-              ? withLegacyFields({
-                ...g,
-                results: (g.results || []).map((r) =>
-                  r.id === resultId ? normalizeStudentResult({ ...r, ...updatedData }) : r
-                ),
-              })
-              : g
-          ),
-        })),
+          groups: state.groups.map((g) => {
+            if (g.id !== groupId) return g;
 
-      removeStudentResult: (groupId, resultId) =>
+            const normalized = normalizeStudentResult(result);
+            const studentNo = normalizeStudentNumber(normalized.studentNumber);
+            const currentResults = [...(g.results || [])];
+
+            if (!normalized.pending && studentNo) {
+              const duplicateIndex = currentResults.findIndex((item) =>
+                !item.pending && normalizeStudentNumber(item.studentNumber) === studentNo
+              );
+
+              if (duplicateIndex >= 0) {
+                const existing = currentResults[duplicateIndex];
+                if (existing.gradedImagePath && existing.gradedImagePath !== normalized.gradedImagePath) {
+                  staleImagePaths.push(existing.gradedImagePath);
+                }
+
+                currentResults[duplicateIndex] = normalizeStudentResult({
+                  ...existing,
+                  ...normalized,
+                  id: existing.id,
+                });
+              } else {
+                currentResults.push(normalized);
+              }
+            } else {
+              currentResults.push(normalized);
+            }
+
+            return withLegacyFields({
+              ...g,
+              results: currentResults,
+            });
+          }),
+        }));
+
+        cleanupImagePaths(staleImagePaths);
+      },
+
+      updateStudentResult: (groupId, resultId, updatedData) => {
+        const staleImagePaths: string[] = [];
+
         set((state) => ({
-          groups: state.groups.map((g) =>
-            g.id === groupId
-              ? withLegacyFields({
-                ...g,
-                results: (g.results || []).filter((r) => r.id !== resultId),
-              })
-              : g
-          ),
-        })),
+          groups: state.groups.map((g) => {
+            if (g.id !== groupId) return g;
+
+            const currentResults = [...(g.results || [])];
+            const currentIndex = currentResults.findIndex((item) => item.id === resultId);
+            if (currentIndex < 0) return g;
+
+            const current = currentResults[currentIndex];
+            const merged = normalizeStudentResult({
+              ...current,
+              ...updatedData,
+              id: current.id,
+            });
+
+            if (current.gradedImagePath && current.gradedImagePath !== merged.gradedImagePath) {
+              staleImagePaths.push(current.gradedImagePath);
+            }
+
+            let nextResults = currentResults.map((item) => (item.id === resultId ? merged : item));
+            const studentNo = normalizeStudentNumber(merged.studentNumber);
+
+            if (!merged.pending && studentNo) {
+              nextResults = nextResults.filter((item) => {
+                if (item.id === resultId) return true;
+                const duplicated = !item.pending && normalizeStudentNumber(item.studentNumber) === studentNo;
+                if (duplicated && item.gradedImagePath && item.gradedImagePath !== merged.gradedImagePath) {
+                  staleImagePaths.push(item.gradedImagePath);
+                }
+                return !duplicated;
+              });
+            }
+
+            return withLegacyFields({
+              ...g,
+              results: nextResults,
+            });
+          }),
+        }));
+
+        cleanupImagePaths(staleImagePaths);
+      },
+
+      removeStudentResult: (groupId, resultId) => {
+        const staleImagePaths: string[] = [];
+
+        set((state) => ({
+          groups: state.groups.map((g) => {
+            if (g.id !== groupId) return g;
+
+            const filtered = (g.results || []).filter((r) => {
+              if (r.id !== resultId) return true;
+              if (r.gradedImagePath) staleImagePaths.push(r.gradedImagePath);
+              return false;
+            });
+
+            return withLegacyFields({
+              ...g,
+              results: filtered,
+            });
+          }),
+        }));
+
+        cleanupImagePaths(staleImagePaths);
+      },
 
       setRosterStudents: (groupId, students) =>
         set((state) => ({
@@ -321,6 +418,7 @@ export const useStore = create<StoreState>()(
 
       transferStudentResult: (sourceGroupId, targetGroupId, resultId, mode = 'skip') => {
         let summary: TransferResultSummary = { ok: false, reason: 'source-not-found' };
+        const staleImagePaths: string[] = [];
 
         set((state) => {
           const sourceGroup = state.groups.find((g) => g.id === sourceGroupId);
@@ -365,6 +463,11 @@ export const useStore = create<StoreState>()(
                 const nextResults = duplicated
                   ? (g.results || []).filter((r) => r.id !== duplicated.id)
                   : [...(g.results || [])];
+
+                if (duplicated?.gradedImagePath && duplicated.gradedImagePath !== studentResult.gradedImagePath) {
+                  staleImagePaths.push(duplicated.gradedImagePath);
+                }
+
                 nextResults.push(studentResult);
                 return withLegacyFields({
                   ...g,
@@ -376,6 +479,8 @@ export const useStore = create<StoreState>()(
             }),
           };
         });
+
+        cleanupImagePaths(staleImagePaths);
 
         return summary;
       },

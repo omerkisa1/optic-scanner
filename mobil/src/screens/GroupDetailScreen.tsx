@@ -38,7 +38,7 @@ import * as XLSX from 'xlsx';
 
 import { useStore } from '../store/useStore';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { API_BASE_URL, processForm } from '../api/omrApi';
+import { API_BASE_URL, processForm, saveResultImage } from '../api/omrApi';
 import { palette, radii } from '../theme/palette';
 import { ClassRosterStudent } from '../types';
 
@@ -434,6 +434,19 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
 
       const score = parseFloat(((correct / (questionCount || 1)) * 100).toFixed(2));
 
+      let gradedImagePath: string | undefined;
+      if (res.formImagePath) {
+        try {
+          gradedImagePath = await saveResultImage(
+            res.formImagePath,
+            res.student_info?.student_number || pendingId,
+            group.id,
+          );
+        } catch (error) {
+          console.warn('Sonuç görseli kalıcıya taşınamadı:', error);
+        }
+      }
+
       updateStudentResult(group.id, pendingId, {
         name: (res.student_info as any)?.student_name || res.student_info?.name || 'Bilinmeyen',
         studentNumber: res.student_info?.student_number || 'Bilinmiyor',
@@ -442,6 +455,7 @@ export const GroupDetailScreen = ({ route, navigation }: Props) => {
         blank,
         score,
         answers: res.answers || {},
+        gradedImagePath,
         pending: false,
       });
     } catch (error: any) {

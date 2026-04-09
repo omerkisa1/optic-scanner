@@ -7,7 +7,7 @@ import {
 const CameraPlus = Camera;
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { processForm } from '../api/omrApi';
+import { processForm, saveResultImage } from '../api/omrApi';
 import { ScanResult } from '../types';
 import { useStore } from '../store/useStore';
 import { palette, radii } from '../theme/palette';
@@ -27,6 +27,7 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
   const [transferModalVisible, setTransferModalVisible] = useState(false);
   const [targetGroupId, setTargetGroupId] = useState('');
   const isMounted = useRef(true);
+  const savingResultRef = useRef<Promise<string> | null>(null);
 
   useEffect(() => {
     isMounted.current = true;
@@ -52,34 +53,75 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
     return { correct, wrong, blank, score };
   };
 
-  const saveResult = (res: ScanResult) => {
+  const saveResult = async (res: ScanResult, skipStateUpdate: boolean = false) => {
     if (savedResultId) return savedResultId;
+    if (savingResultRef.current) return savingResultRef.current;
 
-    const resultId = Math.random().toString(36).substr(2, 9);
-    const { correct, wrong, blank, score } = gradeResult(res);
-    addStudentResult(exam.id, {
-      id: resultId,
-      name: (res.student_info as any)?.student_name || res.student_info?.name || 'Bilinmeyen',
-      studentNumber: res.student_info?.student_number || 'Bilinmiyor',
-      correct, wrong, blank, score,
-      answers: res.answers || {},
-      scannedAt: Date.now(),
-    });
-    setSaved(true);
-    setSavedResultId(resultId);
-    return resultId;
+    const saveTask = (async () => {
+      const resultId = Math.random().toString(36).substr(2, 9);
+      const { correct, wrong, blank, score } = gradeResult(res);
+      const studentName = (res.student_info as any)?.student_name || res.student_info?.name || 'Bilinmeyen';
+      const studentNumber = res.student_info?.student_number || 'Bilinmiyor';
+
+      let gradedImagePath: string | undefined;
+      const tempImagePath = res.formImagePath;
+
+      if (tempImagePath) {
+        try {
+          gradedImagePath = await saveResultImage(tempImagePath, studentNumber || resultId, exam.id);
+        } catch (error) {
+          console.warn('Sonuç görseli kalıcıya taşınamadı:', error);
+        }
+      }
+
+      addStudentResult(exam.id, {
+        id: resultId,
+        name: studentName,
+        studentNumber,
+        correct,
+        wrong,
+        blank,
+        score,
+        answers: res.answers || {},
+        gradedImagePath,
+        scannedAt: Date.now(),
+      });
+
+      if (!skipStateUpdate && isMounted.current) {
+        setSaved(true);
+        setSavedResultId(resultId);
+      }
+
+      return resultId;
+    })();
+
+    savingResultRef.current = saveTask;
+    try {
+      return await saveTask;
+    } finally {
+      savingResultRef.current = null;
+    }
   };
 
   const otherGroups = groups.filter(g => g.id !== exam.id);
 
-  const openTransferModal = () => {
+  const openTransferModal = async () => {
     if (!result) return;
     if (otherGroups.length === 0) {
       Alert.alert('Uyarı', 'Aktarım için en az bir farklı sınıf oluşturulmalı.');
       return;
     }
 
-    const ensuredResultId = saved ? savedResultId : saveResult(result);
+    let ensuredResultId = savedResultId;
+    if (!ensuredResultId) {
+      try {
+        ensuredResultId = await saveResult(result);
+      } catch {
+        Alert.alert('Hata', 'Sonuç kaydı yapılamadı. Lütfen tekrar deneyin.');
+        return;
+      }
+    }
+
     if (!ensuredResultId) return;
 
     const studentNo = String(result.student_info?.student_number || '').replace(/\s+/g, '').trim();
@@ -133,7 +175,7 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
       setErrorMSG(null);
       const res = await processForm(imageUri, exam.question_count || exam.questionCount || 20);
       if (!isMounted.current) {
-        if (!(res.error || res.status === 'error')) saveResult(res);
+        if (!(res.error || res.status === 'error')) await saveResult(res, true);
         return;
       }
       if (res.error || res.status === 'error') {
@@ -339,8 +381,15 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
         <TouchableOpacity
           style={styles.saveBtn}
           activeOpacity={0.85}
-          onPress={() => {
-            if (!saved) saveResult(result);
+          onPress={async () => {
+            if (!saved) {
+              try {
+                await saveResult(result);
+              } catch {
+                Alert.alert('Hata', 'Sonuç kaydedilemedi. Lütfen tekrar deneyin.');
+                return;
+              }
+            }
             navigation.navigate('GroupDetail', { groupId: exam.id });
           }}
         >
@@ -351,8 +400,15 @@ export const ScanResultScreen = ({ route, navigation }: Props) => {
         <TouchableOpacity
           style={styles.moreBtn}
           activeOpacity={0.85}
-          onPress={() => {
-            if (!saved) saveResult(result);
+          onPress={async () => {
+            if (!saved) {
+              try {
+                await saveResult(result);
+              } catch {
+                Alert.alert('Hata', 'Sonuç kaydedilemedi. Lütfen tekrar deneyin.');
+                return;
+              }
+            }
             navigation.goBack();
           }}
         >
